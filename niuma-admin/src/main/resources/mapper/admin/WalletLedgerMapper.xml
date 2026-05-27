@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.niuma.admin.mapper.WalletLedgerMapper">
+    <select id="queryByUserAndType" resultType="com.niuma.admin.entity.WalletLedger">
+        SELECT * FROM `wallet_ledger`
+        WHERE `user_id` = #{userId}
+          AND `wallet_type` = #{walletType}
+        <if test="startTime != null">
+            AND `create_time` >= #{startTime}
+        </if>
+        <if test="endTime != null">
+            AND `create_time` &lt;= #{endTime}
+        </if>
+        <if test="bizType != null and bizType != ''">
+            AND `biz_type` = #{bizType}
+        </if>
+        ORDER BY `create_time` DESC
+    </select>
+
+    <select id="findByRefNo" resultType="com.niuma.admin.entity.WalletLedger">
+        SELECT * FROM `wallet_ledger`
+        WHERE `ref_no` = #{refNo}
+        LIMIT 1
+    </select>
+</mapper>

@@ -43,11 +43,23 @@ public class Player extends MyBaseEntity {
     // 上级代理玩家id
     private String agencyId;
 
+    // 微信 OpenID
+    private String openid;
+
+    // 设备ID
+    private String deviceId;
+
     // 最后登录IP
     private String loginIp;
 
     // 最后登录时间
     private LocalDateTime loginDate;
+
+    // 实名认证状态(0-未认证 1-已认证 2-审核中)
+    private Integer realNameStatus;
+
+    // 风险等级(0-正常 1-低风险 2-中风险 3-高风险)
+    private Integer riskLevel;
 
     // 账号封禁标志(0未封禁 1-已封禁)
     private Integer banned;

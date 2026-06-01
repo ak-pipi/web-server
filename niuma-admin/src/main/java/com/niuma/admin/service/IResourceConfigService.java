@@ -85,7 +85,7 @@ public interface IResourceConfigService {
      * @param deviceLevel    设备等级
      * @return 聚合配置数据 (audio + vfx + version)
      */
-    ResourceConfigVO fetchResourceConfig(String gameCode, String clientVersion, String String deviceLevel);
+    ResourceConfigVO fetchResourceConfig(String gameCode, String clientVersion, String  deviceLevel);
 
     /**
      * 上报资源加载结果（客户端）

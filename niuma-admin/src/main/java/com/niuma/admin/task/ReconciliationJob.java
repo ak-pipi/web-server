@@ -1,5 +1,6 @@
 package com.niuma.admin.task;
 
+import com.niuma.admin.entity.ReconciliationReport;
 import com.niuma.admin.service.IReconciliationService;
 import com.niuma.quartz.util.AbstractQuartzJob;
 import com.niuma.quartz.domain.SysJob;
@@ -40,7 +41,7 @@ public class ReconciliationJob extends AbstractQuartzJob {
         LocalDate reconcileDate = LocalDate.now().minusDays(1);
 
         try {
-            var report = reconciliationService.reconcile(reconcileDate);
+            ReconciliationReport report = reconciliationService.reconcile(reconcileDate);
 
             log.info("[对账-定时任务] 执行完成: date={}, status={}, balanced={}",
                     reconcileDate, report.getStatus(), report.getBalanced());

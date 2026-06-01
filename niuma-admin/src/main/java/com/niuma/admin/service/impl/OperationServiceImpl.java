@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.ClientPerfReport;
 import com.niuma.admin.enums.DashboardAlertLevel;
+import com.niuma.admin.enums.ReportPeriod;
 import com.niuma.admin.mapper.ClientPerfReportMapper;
 import com.niuma.admin.service.IOperationService;
 import lombok.RequiredArgsConstructor;
@@ -283,7 +284,7 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
 
         // 按级别和时间排序
         alerts.sort((a, b) -> {
-            int levelCmp = b.getLevel().getLevel().compareTo(a.getLevel().getLevel());
+            int levelCmp = b.getLevel().getLevel();
             if (levelCmp != 0) return levelCmp;
             return b.getCreatedAt().compareTo(a.getCreatedAt());
         });
@@ -514,7 +515,7 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
                     .date(entry.getKey())
                     .count((long) dayReports.size())
                     .avgFps(avgField(dayReports, r -> r.getFpsAvg() != null ? BigDecimal.valueOf(r.getFpsAvg()) : null))
-                    .crashCount(dayReports.stream().mapToInt(r -> r.getCrashCount() != null ? r.getCrashCount() : 0).sum())
+                    .crashCount((long) dayReports.stream().mapToInt(r -> r.getCrashCount() != null ? r.getCrashCount() : 0).sum())
                     .build();
         }).collect(Collectors.toList());
     }
@@ -554,7 +555,7 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
     /**
      * 生成周期列表
      */
-    private List<String> generatePeriods(LocalDate start, LocalDate end, ReportQueryDTO.ReportPeriod period) {
+    private List<String> generatePeriods(LocalDate start, LocalDate end, ReportPeriod period) {
         List<String> periods = new ArrayList<>();
         switch (period) {
             case DAILY:

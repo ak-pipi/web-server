@@ -238,7 +238,7 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
     @Override
     public PageResult<WalletLedger> queryPlayerLedger(String playerId, int pageNum, int pageSize) {
         LambdaQueryWrapper<WalletLedger> wrapper = Wrappers.lambdaQuery(WalletLedger.class);
-        wrapper.eq(WalletLedger::getPlayerId, playerId)
+        wrapper.eq(WalletLedger::getUserId, playerId)
                .eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE)
                .orderByDesc(WalletLedger::getId);
         Page<WalletLedger> page = new Page<>(pageNum, pageSize);
@@ -252,7 +252,7 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
         wrapper.eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE);
 
         if (dto.getPlayerId() != null && !dto.getPlayerId().isEmpty()) {
-            wrapper.eq(WalletLedger::getPlayerId, dto.getPlayerId());
+            wrapper.eq(WalletLedger::getUserId, dto.getPlayerId());
         }
         if (dto.getActionType() != null && !dto.getActionType().isEmpty()) {
             String bizType = "deposit".equals(dto.getActionType())
@@ -283,7 +283,7 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
         largeAmountWrapper.eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE)
                          .ge(WalletLedger::getChangeAmount, 50000L);
         if (playerId != null && !playerId.isEmpty()) {
-            largeAmountWrapper.eq(WalletLedger::getPlayerId, playerId);
+            largeAmountWrapper.eq(WalletLedger::getUserId, playerId);
         }
         List<WalletLedger> largeRecords = walletLedgerMapper.selectList(largeAmountWrapper);
         detectionResult.put("largeAmountRecords", largeRecords.size());
@@ -294,13 +294,13 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
         frequentWrapper.eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE)
                       .ge(WalletLedger::getCreateTime, oneHourAgo);
         if (playerId != null && !playerId.isEmpty()) {
-            frequentWrapper.eq(WalletLedger::getPlayerId, playerId);
+            frequentWrapper.eq(WalletLedger::getUserId, playerId);
         }
         List<WalletLedger> recentRecords = walletLedgerMapper.selectList(frequentWrapper);
         
         Map<String, Long> frequencyMap = new HashMap<>();
         for (WalletLedger record : recentRecords) {
-            frequencyMap.merge(record.getPlayerId(), 1L, Long::sum);
+            frequencyMap.merge(record.getUserId(), 1L, Long::sum);
         }
         long frequentCount = frequencyMap.values().stream().filter(c -> c >= 10).count();
         detectionResult.put("frequentOperationPlayers", frequentCount);
@@ -311,7 +311,7 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
                           .ge(WalletLedger::getChangeAmount, 10000L)
                           .apply("HOUR(create_time) BETWEEN 2 AND 5");
         if (playerId != null && !playerId.isEmpty()) {
-            abnormalTimeWrapper.eq(WalletLedger::getPlayerId, playerId);
+            abnormalTimeWrapper.eq(WalletLedger::getUserId, playerId);
         }
         List<WalletLedger> abnormalTimeRecords = walletLedgerMapper.selectList(abnormalTimeWrapper);
         detectionResult.put("abnormalTimeRecords", abnormalTimeRecords.size());

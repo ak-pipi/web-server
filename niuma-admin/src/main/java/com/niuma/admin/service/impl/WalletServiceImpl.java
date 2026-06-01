@@ -164,13 +164,13 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     private Long writeLedger(String playerId, String walletType, long amount,
                              Integer changeType, String bizType, String refBizNo, String remark) {
         WalletLedger ledger = new WalletLedger();
-        ledger.setLedgerId(UUID.randomUUID().toString().replace("-", ""));
-        ledger.setPlayerId(playerId);
+        ledger.setUserId(playerId);
         ledger.setWalletType(walletType);
-        ledger.setChangeType(changeType);
-        ledger.setChangeAmount(amount);
+        ledger.setChangeAmount(amount > 0 ? amount : -amount);
+        ledger.setBalanceAfter(getBalance(playerId, walletType));
         ledger.setBizType(bizType);
-        ledger.setRefBizNo(refBizNo);
+        ledger.setBizId(refBizNo);
+        ledger.setRefNo(UUID.randomUUID().toString().replace("-", ""));
         ledger.setRemark(remark);
         ledger.setCreateTime(LocalDateTime.now());
         walletLedgerMapper.insert(ledger);
@@ -240,13 +240,13 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
                                Long beforeAmount, Long afterAmount,
                                String remark, boolean needApproval) {
         AdminAuditLog auditLog = new AdminAuditLog();
-        auditLog.setAdminId(operator);
+        auditLog.setAdminName(operator);
         auditLog.setAction("WALLET_ADJUST");
         auditLog.setTargetType(targetType);
         auditLog.setTargetId(targetUserId);
-        auditLog.setBeforeValue(String.valueOf(beforeAmount));
-        auditLog.setAfterValue(String.valueOf(afterAmount));
-        auditLog.setRemark(String.format("人工调整 %s%s | 原因: %s | %s",
+        auditLog.setBeforeJson(String.valueOf(beforeAmount));
+        auditLog.setAfterJson(String.valueOf(afterAmount));
+        auditLog.setReason(String.format("人工调整 %s%s | 原因: %s | %s",
                 changeAmount > 0 ? "+" : "", changeAmount, remark,
                 needApproval ? "[大额-需审批]" : ""));
         auditLog.setStatus(needApproval ? 0 : 1);   // 0=待审批, 1=已生效
@@ -269,15 +269,13 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     public PageResult<?> queryRoomFeeLedger(LedgerQueryDTO dto) {
         LambdaQueryWrapper<RoomFeeLedger> wrapper = Wrappers.lambdaQuery(RoomFeeLedger.class);
         if (dto.getPlayerId() != null && !dto.getPlayerId().isEmpty()) {
-            wrapper.eq(RoomFeeLedger::getPlayerId, dto.getPlayerId())
-                   .or()
-                   .eq(RoomFeeLedger::getPayerId, dto.getPlayerId());
+            wrapper.eq(RoomFeeLedger::getUserId, dto.getPlayerId());
         }
         if (dto.getStartTime() != null && !dto.getStartTime().isEmpty()) {
-            wrapper.ge(RoomFeeLedger::getPayTime, dto.getStartTime());
+            wrapper.ge(RoomFeeLedger::getCreateTime, dto.getStartTime());
         }
         if (dto.getEndTime() != null && !dto.getEndTime().isEmpty()) {
-            wrapper.le(RoomFeeLedger::getPayTime, dto.getEndTime());
+            wrapper.le(RoomFeeLedger::getCreateTime, dto.getEndTime());
         }
         wrapper.orderByDesc(RoomFeeLedger::getId);
         Page<RoomFeeLedger> page = new Page<>(dto.getPageNum(), dto.getPageSize());
@@ -288,7 +286,7 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     private LambdaQueryWrapper<WalletLedger> buildLedgerQuery(LedgerQueryDTO dto) {
         LambdaQueryWrapper<WalletLedger> wrapper = Wrappers.lambdaQuery(WalletLedger.class);
         if (dto.getPlayerId() != null && !dto.getPlayerId().isEmpty()) {
-            wrapper.eq(WalletLedger::getPlayerId, dto.getPlayerId());
+            wrapper.eq(WalletLedger::getUserId, dto.getPlayerId());
         }
         if (dto.getWalletType() != null && !dto.getWalletType().isEmpty()) {
             wrapper.eq(WalletLedger::getWalletType, dto.getWalletType());
@@ -297,7 +295,8 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
             wrapper.eq(WalletLedger::getBizType, dto.getBizType());
         }
         if (dto.getChangeType() != null) {
-            wrapper.eq(WalletLedger::getChangeType, dto.getChangeType());
+            // changeType 不在 WalletLedger 中，通过 bizType 前缀或 remark 过滤
+            // 暂时跳过，待实体扩展后支持
         }
         if (dto.getStartTime() != null && !dto.getStartTime().isEmpty()) {
             wrapper.ge(WalletLedger::getCreateTime, dto.getStartTime());

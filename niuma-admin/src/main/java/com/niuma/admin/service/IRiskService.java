@@ -1,8 +1,11 @@
 package com.niuma.admin.service;
 
 import com.niuma.admin.dto.*;
+import com.niuma.admin.enums.RiskRuleId;
 import com.niuma.common.core.page.TableDataInfo;
 import com.niuma.common.core.domain.AjaxResult;
+
+import java.util.List;
 
 /**
  * 风控中心服务接口
@@ -27,7 +30,7 @@ public interface IRiskService {
     /**
      * 获取所有规则配置列表（用于管理界面展示+编辑）
      */
-    java.util.List<RiskRuleId> getRuleList();
+    List<RiskRuleId> getRuleList();
 
     /**
      * 更新规则阈值配置

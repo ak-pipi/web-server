@@ -44,6 +44,9 @@ public class AdminAuditLog {
     /** 操作原因 */
     private String reason;
 
+    /** 审批状态: 0-待审批, 1-已生效, 2-已驳回 */
+    private Integer status;
+
     /** 操作IP */
     private String ip;
 

@@ -369,7 +369,11 @@ public class ResourceConfigServiceImpl implements IResourceConfigService {
         // ---- 综合统计 ----
         stats.setTotalReportCount(0L);
         stats.setActiveDeviceCount(0L);
-        stats.setByDeviceLevel(Map.of("high", 100L, "medium", 50L, "low", 10L));
+        stats.setByDeviceLevel(new HashMap<String, Long>() {{
+            put("high", 100L);
+            put("medium", 50L);
+            put("low", 10L);
+        }});
 
         return stats;
     }

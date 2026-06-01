@@ -270,7 +270,7 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
     private boolean isDuplicate(String messageId) {
         LambdaQueryWrapper<GameRound> wrapper = Wrappers.lambdaQuery(GameRound.class)
                 .eq(GameRound::getMessageId, messageId);
-        Long count = gameRoundMapper.selectCount(wrapper);
+        Long count = Long.valueOf(gameRoundMapper.selectCount(wrapper));
         return count != null && count > 0;
     }
 

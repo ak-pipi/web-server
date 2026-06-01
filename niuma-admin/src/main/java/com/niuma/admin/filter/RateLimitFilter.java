@@ -1,6 +1,7 @@
 package com.niuma.admin.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.niuma.common.core.HttpStatusCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
@@ -118,7 +119,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private void writeLimitExceeded(HttpServletResponse response, String message) throws IOException {
-        response.setStatus(HttpServletResponse.SC_TOO_MANY_REQUESTS);
+        response.setStatus(HttpStatusCode.SC_TOO_MANY_REQUESTS);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
 

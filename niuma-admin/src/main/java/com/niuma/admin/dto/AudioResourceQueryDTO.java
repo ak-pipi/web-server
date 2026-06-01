@@ -1,6 +1,6 @@
 package com.niuma.admin.dto;
 
-import com.niuma.common.core.page.PageBody;
+import com.niuma.common.page.PageBody;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 

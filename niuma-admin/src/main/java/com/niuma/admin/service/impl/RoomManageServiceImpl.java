@@ -365,13 +365,13 @@ public class RoomManageServiceImpl implements IRoomManageService {
                                String targetId, String beforeValue,
                                String afterValue, String remark) {
         AdminAuditLog auditLog = new AdminAuditLog();
-        auditLog.setAdminId(adminId);
+        auditLog.setAdminId(Long.valueOf(adminId));
         auditLog.setAction(action);
         auditLog.setTargetType(targetType);
         auditLog.setTargetId(targetId);
-        auditLog.setBeforeValue(beforeValue);
-        auditLog.setAfterValue(afterValue);
-        auditLog.setRemark(remark);
+        auditLog.setBeforeJson(beforeValue);
+        auditLog.setAfterJson(afterValue);
+        auditLog.setReason(remark);
         auditLog.setStatus(1);
         auditLog.setCreateTime(LocalDateTime.now());
         auditLogMapper.insert(auditLog);

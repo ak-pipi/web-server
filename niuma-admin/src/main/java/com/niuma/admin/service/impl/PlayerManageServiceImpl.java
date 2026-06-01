@@ -468,11 +468,11 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
     private void writeAuditLog(String operator, String action, String targetId,
                                String reason, String remark, int status) {
         AdminAuditLog auditLog = new AdminAuditLog();
-        auditLog.setAdminId(operator);
+        auditLog.setAdminName(operator);
         auditLog.setAction(action);
         auditLog.setTargetType("PLAYER");
         auditLog.setTargetId(targetId);
-        auditLog.setRemark(reason + (remark != null && !remark.isEmpty() ? " | " + remark : ""));
+        auditLog.setReason(reason + (remark != null && !remark.isEmpty() ? " | " + remark : ""));
         auditLog.setStatus(status);
         auditLog.setIp(""); // TODO: 从请求上下文获取IP
         auditLog.setCreateTime(LocalDateTime.now());

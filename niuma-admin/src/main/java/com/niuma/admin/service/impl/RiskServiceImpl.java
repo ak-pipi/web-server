@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niuma.admin.dto.*;
-import com.niuma.admin.entity.GameRound;
 import com.niuma.admin.entity.Player;
 import com.niuma.admin.entity.PlayerLoginLog;
 import com.niuma.admin.entity.RiskEvent;
@@ -32,6 +31,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+
 
 /**
  * 风控中心服务实现
@@ -114,7 +114,7 @@ public class RiskServiceImpl implements IRiskService {
                 RuleCheckResult result;
                 switch (rule) {
                     case R001_SAME_IP_MULTI_ACCOUNT:
-                        result = checkR001(targetUserId, threshold, targetPlayer.getLastLoginIp());
+                        result = checkR001(targetUserId, threshold, targetPlayer.getLoginIp());
                         break;
                     case R002_SAME_DEVICE_MULTI_ACCOUNT:
                         result = checkR002(targetUserId, threshold, targetPlayer.getDeviceId());
@@ -135,7 +135,7 @@ public class RiskServiceImpl implements IRiskService {
                         result = checkR007(targetUserId, threshold);
                         break;
                     case R008_REMOTE_LOCATION_LOGIN:
-                        result = checkR008(targetUserId, threshold, targetPlayer.getLastLoginIp());
+                        result = checkR008(targetUserId, threshold, targetPlayer.getLoginIp());
                         break;
                     default:
                         continue;
@@ -175,11 +175,11 @@ public class RiskServiceImpl implements IRiskService {
             return AjaxResult.error("风控检测异常: " + e.getMessage());
         }
 
-        return AjaxResult.success("检测完成", Map.of(
-                "triggeredCount", triggeredCount,
-                "maxRiskLevel", maxRiskLevel,
-                "events", newEvents.stream().map(RiskEvent::getId).collect(Collectors.toList())
-        ));
+        Map<String, Object> resultData = new HashMap<>();
+        resultData.put("triggeredCount", triggeredCount);
+        resultData.put("maxRiskLevel", maxRiskLevel);
+        resultData.put("events", newEvents.stream().map(RiskEvent::getId).collect(Collectors.toList()));
+        return AjaxResult.success("检测完成", resultData);
     }
 
     @Override
@@ -355,13 +355,13 @@ public class RiskServiceImpl implements IRiskService {
 
         profile.setNickname(player.getNickname());
         profile.setRiskLevel(player.getRiskLevel());
-        profile.setAccountStatus(player.getStatus());
-        profile.setLastLoginIp(player.getLastLoginIp());
+        profile.setAccountStatus(player.getBanned() != null ? player.getBanned() : 0);
+        profile.setLastLoginIp(player.getLoginIp());
         profile.setDeviceId(player.getDeviceId());
         profile.setRegisterTime(player.getCreateTime() != null ?
                 player.getCreateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
-        profile.setLastLoginTime(player.getLastLoginAt() != null ?
-                player.getLastLoginAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
+        profile.setLastLoginTime(player.getLoginDate() != null ?
+                player.getLoginDate().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
 
         // 关联账号分析
         loadRelatedAccounts(profile, player);
@@ -550,31 +550,34 @@ public class RiskServiceImpl implements IRiskService {
      */
     private RuleCheckResult checkR001(String userId, int threshold, String ip) {
         if (ip == null || ip.isEmpty()) {
-            return noTrigger();
+            return RuleCheckResult.noTrigger();
         }
 
         long sameIpCount = playerMapper.selectCount(
                 new LambdaQueryWrapper<Player>()
-                        .eq(Player::getLastLoginIp, ip)
+                        .eq(Player::getLoginIp, ip)
                         .ne(Player::getId, userId)
-                        .eq(Player::getStatus, 0)); // 仅正常账号
+                        .eq(Player::getBanned, 0)); // 仅正常账号（未封禁）
 
         if (sameIpCount >= threshold) {
             List<String> relatedUserIds = playerMapper.selectList(
                             new LambdaQueryWrapper<Player>()
-                                    .eq(Player::getLastLoginIp, ip)
+                                    .eq(Player::getLoginIp, ip)
                                     .ne(Player::getId, userId)
                                     .last("LIMIT " + (threshold + 5)))
-                    .stream().map(Player::getId).map(String::valueOf).collect(Collectors.toList());
+                    .stream().map(Player::getId).collect(Collectors.toList());
 
-            Map<String, Object> detail = Map.of(
-                    "ip", ip,
-                    "sameIpAccountCount", sameIpCount,
-                    "threshold", threshold
-            );
-            return trigger(2, objectMapper.writeValueAsString(detail), relatedUserIds);
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("ip", ip);
+            detail.put("sameIpAccountCount", sameIpCount);
+            detail.put("threshold", threshold);
+            try {
+                return RuleCheckResult.trigger(2, objectMapper.writeValueAsString(detail), relatedUserIds);
+            } catch (Exception e) {
+                return RuleCheckResult.trigger(2, "{}", relatedUserIds);
+            }
         }
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     /**
@@ -582,14 +585,14 @@ public class RiskServiceImpl implements IRiskService {
      */
     private RuleCheckResult checkR002(String userId, int threshold, String deviceId) {
         if (deviceId == null || deviceId.isEmpty()) {
-            return noTrigger();
+            return RuleCheckResult.noTrigger();
         }
 
         long sameDeviceCount = playerMapper.selectCount(
                 new LambdaQueryWrapper<Player>()
                         .eq(Player::getDeviceId, deviceId)
                         .ne(Player::getId, userId)
-                        .eq(Player::getStatus, 0));
+                        .eq(Player::getBanned, 0));
 
         if (sameDeviceCount >= threshold) {
             List<String> relatedUserIds = playerMapper.selectList(
@@ -597,16 +600,19 @@ public class RiskServiceImpl implements IRiskService {
                                     .eq(Player::getDeviceId, deviceId)
                                     .ne(Player::getId, userId)
                                     .last("LIMIT " + (threshold + 3)))
-                    .stream().map(Player::getId).map(String::valueOf).collect(Collectors.toList());
+                    .stream().map(Player::getId).collect(Collectors.toList());
 
-            Map<String, Object> detail = Map.of(
-                    "deviceId", deviceId,
-                    "sameDeviceAccountCount", sameDeviceCount,
-                    "threshold", threshold
-            );
-            return trigger(2, objectMapper.writeValueAsString(detail), relatedUserIds);
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("deviceId", deviceId);
+            detail.put("sameDeviceAccountCount", sameDeviceCount);
+            detail.put("threshold", threshold);
+            try {
+                return RuleCheckResult.trigger(2, objectMapper.writeValueAsString(detail), relatedUserIds);
+            } catch (Exception e) {
+                return RuleCheckResult.trigger(2, "{}", relatedUserIds);
+            }
         }
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     /**
@@ -619,7 +625,7 @@ public class RiskServiceImpl implements IRiskService {
                 (List<SettlePlayerResultDTO>) context.get("playerResults") : null;
 
         if (players == null || players.size() < 2) {
-            return noTrigger();
+            return RuleCheckResult.noTrigger();
         }
 
         // 查询最近50局该玩家的对手分布
@@ -631,12 +637,12 @@ public class RiskServiceImpl implements IRiskService {
                 .collect(Collectors.toList());
 
         if (currentOpponents.isEmpty()) {
-            return noTrigger();
+            return RuleCheckResult.noTrigger();
         }
 
         // TODO: 查询 game_round 表计算历史同桌率
         // 此处仅做标记，详细检测由 DAILY 批量任务完成
-        return noTrigger(); // 实时检测暂不触发，依赖定时任务
+        return RuleCheckResult.noTrigger(); // 实时检测暂不触发，依赖定时任务
     }
 
     /**
@@ -644,7 +650,7 @@ public class RiskServiceImpl implements IRiskService {
      */
     private RuleCheckResult checkR004(String userId, int threshold, Map<String, Object> context) {
         // 类似 R003，需要大量历史数据，交由定时任务处理
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     /**
@@ -652,7 +658,7 @@ public class RiskServiceImpl implements IRiskService {
      */
     private RuleCheckResult checkR005(String userId, int threshold) {
         // 需要历史牌局数据，交由定时任务处理
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     /**
@@ -660,7 +666,7 @@ public class RiskServiceImpl implements IRiskService {
      */
     private RuleCheckResult checkR006(String userId, int threshold) {
         // 需要当日牌局统计，交由定时任务处理
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     /**
@@ -668,7 +674,7 @@ public class RiskServiceImpl implements IRiskService {
      */
     private RuleCheckResult checkR007(String userId, int threshold) {
         // 需要历史牌局数据，交由定时任务处理
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     /**
@@ -686,23 +692,27 @@ public class RiskServiceImpl implements IRiskService {
                         .last("LIMIT 2"));
 
         if (recentLogs.size() < 2) {
-            return noTrigger(); // 不足2条记录，无法判断异地
+            return RuleCheckResult.noTrigger(); // 不足2条记录，无法判断异地
         }
 
         String lastIp = recentLogs.get(0).getLoginIp();
         // TODO: 接入 GeoIP 库解析省份并比较
         // 简化实现：IP不同即标记（降低误报）
         if (lastIp != null && currentIp != null && !lastIp.equals(currentIp)) {
-            Map<String, Object> detail = Map.of(
-                    "currentIp", currentIp,
-                    "previousIp", lastIp,
-                    "loginTime", recentLogs.get(0).getLoginTime()
-                            ?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-            );
-            return trigger(1, objectMapper.writeValueAsString(detail), Collections.emptyList());
+            Map<String, Object> detail = new HashMap<>();
+            detail.put("currentIp", currentIp);
+            detail.put("previousIp", lastIp);
+            LocalDateTime loginTime = recentLogs.get(0).getLoginTime();
+            detail.put("loginTime", loginTime != null ?
+                    loginTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : null);
+            try {
+                return RuleCheckResult.trigger(1, objectMapper.writeValueAsString(detail), Collections.emptyList());
+            } catch (Exception e) {
+                return RuleCheckResult.trigger(1, "{}", Collections.emptyList());
+            }
         }
 
-        return noTrigger();
+        return RuleCheckResult.noTrigger();
     }
 
     // ==================== 私有方法: 批量分析 ====================
@@ -830,7 +840,7 @@ public class RiskServiceImpl implements IRiskService {
     private void freezePlayerAccount(String userId) {
         Player player = playerMapper.selectById(userId);
         if (player != null) {
-            player.setStatus(2); // 冻结状态
+            player.setBanned(1); // 封禁状态
             player.setRiskLevel(99); // 冻结标记
             playerMapper.updateById(player);
             log.warn("[风控-冻结] 已冻结账号: userId={}", userId);
@@ -866,7 +876,7 @@ public class RiskServiceImpl implements IRiskService {
 
     private void loadRelatedAccounts(RiskPlayerProfileVO profile, Player player) {
         List<RiskPlayerProfileVO.RelatedAccount> accounts = new ArrayList<>();
-        String lastIp = player.getLastLoginIp();
+        String lastIp = player.getLoginIp();
         String deviceId = player.getDeviceId();
         Set<String> seenIds = new HashSet<>();
         seenIds.add(profile.getUserId()); // 排除自己
@@ -874,7 +884,7 @@ public class RiskServiceImpl implements IRiskService {
         if (lastIp != null && !lastIp.isEmpty()) {
             List<Player> sameIpPlayers = playerMapper.selectList(
                     new LambdaQueryWrapper<Player>()
-                            .eq(Player::getLastLoginIp, lastIp)
+                            .eq(Player::getLoginIp, lastIp)
                             .ne(Player::getId, profile.getUserId())
                             .last("LIMIT 10"));
             for (Player p : sameIpPlayers) {

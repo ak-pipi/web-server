@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.entity.ReconciliationReport;
 import com.niuma.admin.mapper.ReconciliationReportMapper;
+import com.niuma.admin.mapper.WalletLedgerMapper;
 import com.niuma.admin.service.IAlertService;
 import com.niuma.admin.service.IReconciliationService;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,8 @@ import java.util.List;
 public class ReconciliationServiceImpl extends ServiceImpl<ReconciliationReportMapper, ReconciliationReport> implements IReconciliationService {
 
     private final IAlertService alertService;
+
+    private final WalletLedgerMapper walletLedgerMapper;
 
     @Override
     public ReconciliationReport reconcile(LocalDate date) {
@@ -141,11 +144,9 @@ public class ReconciliationServiceImpl extends ServiceImpl<ReconciliationReportM
 
     /**
      * 查询指定日期和业务类型的流水汇总
-     * TODO: 替换为实际 SQL 或 Mapper 方法
      */
     protected BigDecimal queryLedgerSumByBizType(LocalDate date, String bizType) {
-        // SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger
-        // WHERE DATE(created_at)=? AND biz_type=? AND deleted=0
-        return BigDecimal.ZERO; // 占位返回
+        BigDecimal result = walletLedgerMapper.sumByBizType(date, bizType);
+        return result != null ? result : BigDecimal.ZERO;
     }
 }

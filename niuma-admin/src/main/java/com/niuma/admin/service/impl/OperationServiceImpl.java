@@ -8,6 +8,10 @@ import com.niuma.admin.entity.ClientPerfReport;
 import com.niuma.admin.enums.DashboardAlertLevel;
 import com.niuma.admin.enums.ReportPeriod;
 import com.niuma.admin.mapper.ClientPerfReportMapper;
+import com.niuma.admin.mapper.GameRoundMapper;
+import com.niuma.admin.mapper.PlayerLoginLogMapper;
+import com.niuma.admin.mapper.PlayerMapper;
+import com.niuma.admin.mapper.WalletLedgerMapper;
 import com.niuma.admin.service.IOperationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +39,11 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, ClientPerfReport> implements IOperationService {
+
+    private final GameRoundMapper gameRoundMapper;
+    private final PlayerLoginLogMapper playerLoginLogMapper;
+    private final PlayerMapper playerMapper;
+    private final WalletLedgerMapper walletLedgerMapper;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -587,11 +596,10 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
 
     // ===== 以下方法为占位实现,需根据实际表结构调整 SQL =====
 
-    /** DAU: 当日活跃用户数 (基于 login_log 或 player.last_active_time) */
+    /** DAU: 当日活跃用户数 (基于 player_login_log) */
     protected Long queryDau(LocalDateTime start, LocalDateTime end) {
-        // TODO: SELECT COUNT(DISTINCT user_id) FROM login_log WHERE login_time BETWEEN ? AND ?
-        // 或 SELECT COUNT(*) FROM player WHERE last_active_time BETWEEN ? AND ?
-        return 0L;
+        Long count = playerLoginLogMapper.countDistinctPlayerByTimeRange(start, end);
+        return count != null ? count : 0L;
     }
 
     protected Long queryDauByDate(String date) { return 0L; }
@@ -601,14 +609,13 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
 
     /** 收入: 房卡消耗 */
     protected BigDecimal queryIncome(LocalDateTime start, LocalDateTime end) {
-        // TODO: SELECT COALESCE(SUM(amount), 0) FROM wallet_ledger
-        // WHERE biz_type='ROOM_FEE' AND created_at BETWEEN ? AND ?
-        return BigDecimal.ZERO;
+        BigDecimal result = walletLedgerMapper.sumByBizTypeAndTimeRange(start, end, "ROOM_FEE");
+        return result != null ? result : BigDecimal.ZERO;
     }
 
     protected Long queryRoundCount(LocalDateTime start, LocalDateTime end) {
-        // TODO: SELECT COUNT(*) FROM game_round WHERE created_at BETWEEN ? AND ?
-        return 0L;
+        Long count = gameRoundMapper.countByTimeRange(start, end);
+        return count != null ? count : 0L;
     }
 
     protected Long queryRoundCountByDate(String date, String gameCode) { return 0L; }
@@ -616,8 +623,8 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
 
     /** 新增用户 */
     protected Long queryNewUserCount(LocalDateTime start, LocalDateTime end) {
-        // TODO: SELECT COUNT(*) FROM player WHERE create_time BETWEEN ? AND ?
-        return 0L;
+        Long count = playerMapper.countByCreateTimeRange(start, end);
+        return count != null ? count : 0L;
     }
 
     protected Long queryRegisteredUsersByDate(String date) { return 0L; }
@@ -632,9 +639,24 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
     protected Long queryOnlineCount() { return 0L; }
 
     /** 流水汇总 */
-    protected BigDecimal queryLedgerSum(String period, String bizType) { return BigDecimal.ZERO; }
-    protected BigDecimal queryLedgerAbsSum(String period, String bizType) { return BigDecimal.ZERO; }
-    protected Long queryPayingUserCount(String period) { return 0L; }
+    protected BigDecimal queryLedgerSum(String period, String bizType) {
+        LocalDateTime start = LocalDate.parse(period).atStartOfDay();
+        LocalDateTime end = start.plusDays(1).minusNanos(1);
+        BigDecimal result = walletLedgerMapper.sumByBizTypeAndTimeRange(start, end, bizType);
+        return result != null ? result : BigDecimal.ZERO;
+    }
+
+    protected BigDecimal queryLedgerAbsSum(String period, String bizType) {
+        BigDecimal val = queryLedgerSum(period, bizType);
+        return val.abs();
+    }
+
+    protected Long queryPayingUserCount(String period) {
+        LocalDateTime start = LocalDate.parse(period).atStartOfDay();
+        LocalDateTime end = start.plusDays(1).minusNanos(1);
+        Long count = walletLedgerMapper.countDistinctUserByBizTypeAndTimeRange(start, end, "ROOM_FEE");
+        return count != null ? count : 0L;
+    }
 
     /** 风控事件 */
     protected Long queryRiskEventCountByDate(String date) { return 0L; }

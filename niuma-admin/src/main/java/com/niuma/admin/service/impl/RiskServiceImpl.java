@@ -16,6 +16,7 @@ import com.niuma.admin.mapper.PlayerMapper;
 import com.niuma.admin.mapper.RiskEventMapper;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.core.page.TableDataInfo;
+import com.niuma.common.core.redis.RedisCache;
 import com.niuma.common.utils.PageUtils;
 import com.niuma.common.utils.SecurityUtils;
 import com.niuma.admin.service.IRiskService;
@@ -63,11 +64,16 @@ public class RiskServiceImpl implements IRiskService {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private RedisCache redisCache;
+
     /** 规则阈值运行时配置 (可动态修改，key=规则code, value=阈值) */
     private final Map<String, Integer> ruleThresholds = new ConcurrentHashMap<>();
 
     /** 规则启用状态 */
     private final Map<String, Boolean> ruleEnabled = new ConcurrentHashMap<>();
+
+    private static final String RISK_RULE_PREFIX = "risk:rule:";
 
     public RiskServiceImpl() {
         // 初始化默认阈值
@@ -75,6 +81,28 @@ public class RiskServiceImpl implements IRiskService {
             ruleThresholds.put(rule.getCode(), rule.getDefaultThreshold());
             ruleEnabled.put(rule.getCode(), true);
         }
+    }
+
+    /**
+     * 从 Redis 加载已持久化的规则配置
+     */
+    @Autowired
+    public void initRuleConfigFromRedis() {
+        for (RiskRuleId rule : RiskRuleId.values()) {
+            try {
+                Integer threshold = redisCache.getCacheObject(RISK_RULE_PREFIX + rule.getCode() + ":threshold");
+                Boolean enabled = redisCache.getCacheObject(RISK_RULE_PREFIX + rule.getCode() + ":enabled");
+                if (threshold != null) {
+                    ruleThresholds.put(rule.getCode(), threshold);
+                }
+                if (enabled != null) {
+                    ruleEnabled.put(rule.getCode(), enabled);
+                }
+            } catch (Exception e) {
+                log.warn("[风控] 从Redis加载规则配置失败: rule={}", rule.getCode());
+            }
+        }
+        log.info("[风控] 规则配置已从Redis加载");
     }
 
     // ==================== 规则引擎 ====================
@@ -195,14 +223,17 @@ public class RiskServiceImpl implements IRiskService {
 
         if (dto.getThreshold() != null) {
             ruleThresholds.put(ruleId, dto.getThreshold());
+            redisCache.setCacheObject(RISK_RULE_PREFIX + ruleId + ":threshold", dto.getThreshold());
         }
         if (dto.getAction() != null && !dto.getAction().isEmpty()) {
             // 验证动作合法性
             RiskAction.fromCode(dto.getAction());
-            // TODO: 持久化到数据库/Redis 配置表
+            // 持久化到Redis
+            redisCache.setCacheObject(RISK_RULE_PREFIX + ruleId + ":action", dto.getAction());
         }
         if (dto.getEnabled() != null) {
             ruleEnabled.put(ruleId, dto.getEnabled());
+            redisCache.setCacheObject(RISK_RULE_PREFIX + ruleId + ":enabled", dto.getEnabled());
         }
 
         log.info("[风控-规则更新] ruleId={}, threshold={}, enabled={}",

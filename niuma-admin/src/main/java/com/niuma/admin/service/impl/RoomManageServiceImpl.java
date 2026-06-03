@@ -6,15 +6,19 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.niuma.admin.dto.RoomCreateDTO;
 import com.niuma.admin.dto.RoomForceDissolveDTO;
 import com.niuma.admin.dto.RoomQueryDTO;
+import com.niuma.admin.data.MqMessage;
 import com.niuma.admin.entity.*;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.rabbit.RabbitSender;
 import com.niuma.admin.service.IRoomManageService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
 import com.niuma.common.exception.http.NotFoundException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.sign.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +35,12 @@ import java.util.UUID;
 @Slf4j
 public class RoomManageServiceImpl implements IRoomManageService {
 
+    @Value("${rabbitmq.game.exchange}")
+    private String gameExchange;
+
+    @Value("${rabbitmq.game.routingKey}")
+    private String gameRoutingKey;
+
     @Autowired
     private RoomMapper roomMapper;
 
@@ -41,7 +51,13 @@ public class RoomManageServiceImpl implements IRoomManageService {
     private GameRuleVersionMapper ruleVersionMapper;
 
     @Autowired
+    private GameRoundMapper gameRoundMapper;
+
+    @Autowired
     private AdminAuditLogMapper auditLogMapper;
+
+    @Autowired
+    private RabbitSender rabbitSender;
 
     // ==================== 创建房间 ====================
 
@@ -99,7 +115,8 @@ public class RoomManageServiceImpl implements IRoomManageService {
         log.info("[房间管理] 创建房间: roomId={}, roomNo={}, gameId={}, type={}",
                 roomId, roomNo, dto.getGameId(), room.getRoomType());
 
-        // TODO: 通过MQ下发创建房间命令到C++服务器
+        // 通过MQ下发创建房间命令到C++服务器
+        sendMqCommand("MsgCreateRoom", room);
 
         writeAuditLog(operator, "ROOM_CREATE", "room", roomId,
                 "", "create", "后台创建房间: " + roomNo);
@@ -135,8 +152,31 @@ public class RoomManageServiceImpl implements IRoomManageService {
             result.put("ruleVersion", version);
         }
 
-        // TODO: 查询该房间的牌局记录(game_round)
-        // TODO: 查询该房间的玩家列表
+        // 查询该房间的牌局记录
+        LambdaQueryWrapper<GameRound> roundWrapper = Wrappers.lambdaQuery(GameRound.class)
+                .eq(GameRound::getRoomId, roomId)
+                .orderByAsc(GameRound::getRoundNo);
+        List<GameRound> rounds = gameRoundMapper.selectList(roundWrapper);
+        result.put("rounds", rounds);
+        result.put("totalRounds", rounds.size());
+
+        // 从牌局记录中提取参与过的玩家ID列表
+        List<String> playerIds = new java.util.ArrayList<>();
+        for (GameRound round : rounds) {
+            if (round.getResultJson() != null) {
+                try {
+                    List<Map<String, Object>> players = com.alibaba.fastjson2.JSON.parseObject(
+                            round.getResultJson(), List.class, Map.class);
+                    for (Map<String, Object> p : players) {
+                        String uid = String.valueOf(p.get("userId"));
+                        if (!playerIds.contains(uid)) {
+                            playerIds.add(uid);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+        result.put("playerIds", playerIds);
 
         return result;
     }
@@ -173,7 +213,8 @@ public class RoomManageServiceImpl implements IRoomManageService {
         log.info("[房间管理] 强制解散: roomId={}, roomNo={}, fromStatus={}, operator={}",
                 roomId, room.getRoomNo(), oldStatus, operator);
 
-        // TODO: 通过MQ下发强制解散命令到C++服务器
+        // 通过MQ下发强制解散命令到C++服务器
+        sendMqCommand("MsgForceDissolveRoom", room);
 
         writeAuditLog(operator, "ROOM_FORCE_DISSOLVE", "room",
                 roomId, String.valueOf(oldStatus), "dissolved",
@@ -304,6 +345,33 @@ public class RoomManageServiceImpl implements IRoomManageService {
     }
 
     // ==================== 内部方法 ====================
+
+    /**
+     * 通过MQ向C++服务器发送房间管理命令
+     */
+    private void sendMqCommand(String msgType, Room room) {
+        try {
+            Map<String, Object> cmd = new HashMap<>();
+            cmd.put("roomId", room.getId());
+            cmd.put("roomNo", room.getRoomNo());
+            cmd.put("gameId", room.getGameId());
+            cmd.put("districtId", room.getDistrictId());
+            cmd.put("configSnapshot", room.getConfigSnapshot());
+
+            String json = com.alibaba.fastjson2.JSON.toJSONString(cmd);
+            String base64 = Base64.encode(json.getBytes());
+
+            MqMessage msg = new MqMessage();
+            msg.setMsgType(msgType);
+            msg.setMsgPack(base64);
+
+            rabbitSender.sendObject(gameExchange, gameRoutingKey, msg);
+            log.info("[房间MQ] 命令已发送: type={}, roomId={}", msgType, room.getId());
+        } catch (Exception e) {
+            log.error("[房间MQ] 命令发送失败: type={}, roomId={}, error={}",
+                    msgType, room.getId(), e.getMessage(), e);
+        }
+    }
 
     private LambdaQueryWrapper<Room> buildQueryWrapper(RoomQueryDTO dto) {
         LambdaQueryWrapper<Room> wrapper = Wrappers.lambdaQuery(Room.class);

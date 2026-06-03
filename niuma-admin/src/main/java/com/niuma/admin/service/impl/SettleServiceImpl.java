@@ -19,6 +19,7 @@ import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.ip.IpUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -57,6 +58,9 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
 
     @Autowired
     private RoomFeeLedgerMapper roomFeeLedgerMapper;
+
+    @Autowired
+    private AdminAuditLogMapper adminAuditLogMapper;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -139,7 +143,18 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
 
         AjaxResult result = processSettlement(dto);
 
-        // 记录审计日志 TODO
+        // 记录审计日志
+        AdminAuditLog auditLog = new AdminAuditLog();
+        auditLog.setAdminName(operator);
+        auditLog.setAction("SETTLE_REPROCESS");
+        auditLog.setTargetType("game_round");
+        auditLog.setTargetId(messageId);
+        auditLog.setReason("手动补单 | messageId=" + messageId + ", roomId=" + dto.getRoomId() + ", roundNo=" + dto.getRoundNo());
+        auditLog.setStatus(1);
+        auditLog.setIp(IpUtils.getIpAddr());
+        auditLog.setCreateTime(LocalDateTime.now());
+        adminAuditLogMapper.insert(auditLog);
+
         log.info("[结算-手动补单] 补单完成: operator={}, messageId={}", operator, messageId);
 
         return result;

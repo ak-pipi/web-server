@@ -15,6 +15,7 @@ import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.ip.IpUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -250,7 +251,7 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
                 changeAmount > 0 ? "+" : "", changeAmount, remark,
                 needApproval ? "[大额-需审批]" : ""));
         auditLog.setStatus(needApproval ? 0 : 1);   // 0=待审批, 1=已生效
-        auditLog.setIp("");                           // 从上下文获取IP
+        auditLog.setIp(IpUtils.getIpAddr());
         auditLog.setCreateTime(LocalDateTime.now());
         adminAuditLogMapper.insert(auditLog);
     }

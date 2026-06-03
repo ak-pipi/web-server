@@ -114,4 +114,11 @@
     <select id="getMaxRobotId" resultType="Integer">
         select max(`id`) from `robot`;
     </select>
+
+    <select id="countByCreateTimeRange" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM `player`
+        WHERE `create_time` >= #{startTime}
+          AND `create_time` &lt;= #{endTime}
+          AND `del_flag` = 0
+    </select>
 </mapper>

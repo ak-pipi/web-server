@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.niuma.admin.mapper.PlayerLoginLogMapper">
+    <select id="countDistinctPlayerByTimeRange" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT player_id) FROM `player_login_log`
+        WHERE `login_time` >= #{startTime}
+          AND `login_time` &lt;= #{endTime}
+    </select>
 </mapper>

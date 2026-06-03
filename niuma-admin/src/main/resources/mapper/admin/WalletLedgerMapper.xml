@@ -22,4 +22,31 @@
         WHERE `ref_no` = #{refNo}
         LIMIT 1
     </select>
+
+    <select id="sumByBizType" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(change_amount), 0) FROM `wallet_ledger`
+        WHERE DATE(create_time) = #{date}
+          AND `biz_type` = #{bizType}
+    </select>
+
+    <select id="sumByBizTypeAndTimeRange" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(change_amount), 0) FROM `wallet_ledger`
+        WHERE `create_time` >= #{startTime}
+          AND `create_time` &lt;= #{endTime}
+          AND `biz_type` = #{bizType}
+    </select>
+
+    <select id="countDistinctUserByBizTypeAndTimeRange" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT user_id) FROM `wallet_ledger`
+        WHERE `create_time` >= #{startTime}
+          AND `create_time` &lt;= #{endTime}
+          AND `biz_type` = #{bizType}
+    </select>
+
+    <select id="countByBizTypeAndTimeRange" resultType="java.lang.Long">
+        SELECT COUNT(*) FROM `wallet_ledger`
+        WHERE `create_time` >= #{startTime}
+          AND `create_time` &lt;= #{endTime}
+          AND `biz_type` = #{bizType}
+    </select>
 </mapper>

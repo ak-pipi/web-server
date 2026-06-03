@@ -6,6 +6,7 @@ import com.niuma.admin.entity.AlertRecord;
 import com.niuma.admin.entity.ReconciliationReport;
 import com.niuma.admin.service.IAlertService;
 import com.niuma.admin.service.IReconciliationService;
+import com.niuma.common.utils.SecurityUtils;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,8 +62,7 @@ public class AdminAlertController {
     public AjaxResult handle(
             @PathVariable Long id,
             @RequestParam(required = false) String remark) {
-        // 获取当前登录用户ID (TODO: 从 SecurityContext)
-        Long currentUserId = 0L; // 占位
+        Long currentUserId = SecurityUtils.getUserId();
         boolean success = alertService.handleAlert(id, currentUserId, remark);
         return success ? AjaxResult.success("处理成功") : AjaxResult.error("处理失败");
     }
@@ -76,7 +76,7 @@ public class AdminAlertController {
     public AjaxResult batchHandle(
             @PathVariable String ruleCode,
             @RequestParam(required = false) String remark) {
-        Long currentUserId = 0L; // 占位
+        Long currentUserId = SecurityUtils.getUserId();
         int count = alertService.batchHandleByRule(ruleCode, currentUserId, remark);
         return AjaxResult.success("已处理" + count + "条");
     }

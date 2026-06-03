@@ -6,17 +6,21 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.niuma.admin.dto.GrayPublishDTO;
 import com.niuma.admin.dto.RuleVersionApproveDTO;
 import com.niuma.admin.dto.RuleVersionCreateDTO;
+import com.niuma.admin.data.MqMessage;
 import com.niuma.admin.entity.*;
 import com.niuma.admin.mapper.AdminAuditLogMapper;
 import com.niuma.admin.mapper.GameRuleVersionMapper;
 import com.niuma.admin.mapper.GameMapper;
+import com.niuma.admin.rabbit.RabbitSender;
 import com.niuma.admin.service.IGameRuleVersionService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
 import com.niuma.common.exception.http.NotFoundException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.sign.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +36,12 @@ import java.util.Map;
 @Slf4j
 public class GameRuleVersionServiceImpl implements IGameRuleVersionService {
 
+    @Value("${rabbitmq.game.exchange}")
+    private String gameExchange;
+
+    @Value("${rabbitmq.game.routingKey}")
+    private String gameRoutingKey;
+
     @Autowired
     private GameRuleVersionMapper ruleVersionMapper;
 
@@ -40,6 +50,9 @@ public class GameRuleVersionServiceImpl implements IGameRuleVersionService {
 
     @Autowired
     private AdminAuditLogMapper auditLogMapper;
+
+    @Autowired
+    private RabbitSender rabbitSender;
 
     // ==================== 草稿 & 提交审批 ====================
 
@@ -171,7 +184,8 @@ public class GameRuleVersionServiceImpl implements IGameRuleVersionService {
         version.setUpdateTime(LocalDateTime.now());
         ruleVersionMapper.updateById(version);
 
-        // TODO: 通过MQ通知C++服务器加载新规则
+        // 通过MQ通知C++服务器加载新规则
+        notifyServerLoadRule(version);
 
         writeAuditLog(operator, "RULE_VERSION_PUBLISH", "game_rule_version",
                 String.valueOf(id), version.getVersionNo(), "全量发布", "发布版本: " + version.getTitle());
@@ -277,7 +291,10 @@ public class GameRuleVersionServiceImpl implements IGameRuleVersionService {
             ruleVersionMapper.updateById(lastHistory);
         }
 
-        // TODO: 通过MQ通知C++服务器回滚到指定规则版本
+        // 通过MQ通知C++服务器回滚到指定规则版本
+        if (lastHistory != null) {
+            notifyServerLoadRule(lastHistory);
+        }
 
         String targetVersion = lastHistory != null ? lastHistory.getVersionNo() : "(无)";
         writeAuditLog(operator, "RULE_VERSION_ROLLBACK", "game_rule_version",
@@ -342,6 +359,33 @@ public class GameRuleVersionServiceImpl implements IGameRuleVersionService {
     }
 
     // ==================== 内部方法 ====================
+
+    /**
+     * 通过MQ通知C++服务器加载/重新加载游戏规则
+     */
+    private void notifyServerLoadRule(GameRuleVersion version) {
+        try {
+            Map<String, Object> cmd = new HashMap<>();
+            cmd.put("gameId", version.getGameId());
+            cmd.put("versionId", version.getId());
+            cmd.put("versionNo", version.getVersionNo());
+            cmd.put("configJson", version.getConfigJson());
+
+            String json = com.alibaba.fastjson2.JSON.toJSONString(cmd);
+            String base64 = Base64.encode(json.getBytes());
+
+            MqMessage msg = new MqMessage();
+            msg.setMsgType("MsgLoadGameRule");
+            msg.setMsgPack(base64);
+
+            rabbitSender.sendObject(gameExchange, gameRoutingKey, msg);
+            log.info("[规则版本MQ] 加载规则通知已发送: gameId={}, versionNo={}",
+                    version.getGameId(), version.getVersionNo());
+        } catch (Exception e) {
+            log.error("[规则版本MQ] 通知发送失败: gameId={}, versionNo={}, error={}",
+                    version.getGameId(), version.getVersionNo(), e.getMessage(), e);
+        }
+    }
 
     private void writeAuditLog(String adminId, String action, String targetType,
                                String targetId, String beforeValue, String afterValue, String remark) {

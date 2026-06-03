@@ -14,6 +14,7 @@ import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.ip.IpUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -474,7 +475,7 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
         auditLog.setTargetId(targetId);
         auditLog.setReason(reason + (remark != null && !remark.isEmpty() ? " | " + remark : ""));
         auditLog.setStatus(status);
-        auditLog.setIp(""); // TODO: 从请求上下文获取IP
+        auditLog.setIp(IpUtils.getIpAddr());
         auditLog.setCreateTime(LocalDateTime.now());
         adminAuditLogMapper.insert(auditLog);
     }

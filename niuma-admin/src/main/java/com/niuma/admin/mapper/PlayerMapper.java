@@ -8,6 +8,7 @@ import com.niuma.admin.entity.Player;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -146,4 +147,10 @@ public interface PlayerMapper extends BaseMapper<Player> {
      * @param playerId 玩家id
      */
     void insertRobot(@Param("playerId") String playerId);
+
+    /**
+     * 按时间范围统计新增用户数
+     */
+    Long countByCreateTimeRange(@Param("startTime") LocalDateTime startTime,
+                                 @Param("endTime") LocalDateTime endTime);
 }

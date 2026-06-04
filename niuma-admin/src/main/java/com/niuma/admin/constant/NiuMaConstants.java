@@ -78,6 +78,36 @@ public final class NiuMaConstants {
     public static final int GAME_TYPE_GUAN_DAN = 1030;
 
     /**
+     * 游戏类型：桃江麻将
+     */
+    public static final int GAME_TYPE_TAOJIANG_MAHJONG = 1031;
+
+    /**
+     * 游戏类型：红中麻将
+     */
+    public static final int GAME_TYPE_HONGZHONG_MAHJONG = 1032;
+
+    /**
+     * 游戏类型：跑得快
+     */
+    public static final int GAME_TYPE_PAO_DE_KUAI = 1033;
+
+    /**
+     * 游戏类型：长沙麻将
+     */
+    public static final int GAME_TYPE_CHANGSHA_MAHJONG = 1034;
+
+    /**
+     * 游戏类型：益阳歪胡子
+     */
+    public static final int GAME_TYPE_YIYANG_WAI_HU_ZI = 1035;
+
+    /**
+     * 游戏类型：沅江千分
+     */
+    public static final int GAME_TYPE_YUANJIANG_QIAN_FEN = 1036;
+
+    /**
      * 区域ID-逮狗腿新手房
      */
     public static final int DISTRICT_LACKEY_BEGINNER = 1;

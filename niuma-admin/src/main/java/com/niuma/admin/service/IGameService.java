@@ -114,4 +114,34 @@ public interface IGameService {
      * @return 分页房间数据
      */
     PageResult<GameRoomDTO> getNiu100(GameRoomReqDTO dto);
+
+    /**
+     * 查询桃江麻将房间列表
+     */
+    PageResult<GameRoomDTO> getTaojiangMahjong(GameRoomReqDTO dto);
+
+    /**
+     * 查询红中麻将房间列表
+     */
+    PageResult<GameRoomDTO> getHongzhongMahjong(GameRoomReqDTO dto);
+
+    /**
+     * 查询跑得快房间列表
+     */
+    PageResult<GameRoomDTO> getPaodekuai(GameRoomReqDTO dto);
+
+    /**
+     * 查询长沙麻将房间列表
+     */
+    PageResult<GameRoomDTO> getChangshaMahjong(GameRoomReqDTO dto);
+
+    /**
+     * 查询益阳歪胡子房间列表
+     */
+    PageResult<GameRoomDTO> getYiyangWaihuzi(GameRoomReqDTO dto);
+
+    /**
+     * 查询沅江千分房间列表
+     */
+    PageResult<GameRoomDTO> getYuanjiangQianfen(GameRoomReqDTO dto);
 }

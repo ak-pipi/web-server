@@ -96,6 +96,24 @@ public class GameServiceImpl implements IGameService {
     private GameGuanDanMapper guanDanMapper;
 
     @Resource
+    private GameTaojiangMahjongMapper taojiangMahjongMapper;
+
+    @Resource
+    private GameHongzhongMahjongMapper hongzhongMahjongMapper;
+
+    @Resource
+    private GamePaodekuaiMapper paodekuaiMapper;
+
+    @Resource
+    private GameChangshaMahjongMapper changshaMahjongMapper;
+
+    @Resource
+    private GameYiyangWaihuziMapper yiyangWaihuziMapper;
+
+    @Resource
+    private GameYuanjiangQianfenMapper yuanjiangQianfenMapper;
+
+    @Resource
     private GameFaultMapper gameFaultMapper;
 
     @Resource
@@ -355,6 +373,78 @@ public class GameServiceImpl implements IGameService {
         }
     }
 
+    private static class TaojiangMahjongNumberTester implements CommonUtils.DuplicateTester {
+        private GameTaojiangMahjongMapper mapper;
+
+        public TaojiangMahjongNumberTester(GameTaojiangMahjongMapper mapper) { this.mapper = mapper; }
+
+        @Override
+        public boolean testDuplicate(String code) {
+            Integer count = this.mapper.hasNumber(code);
+            return CommonUtils.predicate(count);
+        }
+    }
+
+    private static class HongzhongMahjongNumberTester implements CommonUtils.DuplicateTester {
+        private GameHongzhongMahjongMapper mapper;
+
+        public HongzhongMahjongNumberTester(GameHongzhongMahjongMapper mapper) { this.mapper = mapper; }
+
+        @Override
+        public boolean testDuplicate(String code) {
+            Integer count = this.mapper.hasNumber(code);
+            return CommonUtils.predicate(count);
+        }
+    }
+
+    private static class PaodekuaiNumberTester implements CommonUtils.DuplicateTester {
+        private GamePaodekuaiMapper mapper;
+
+        public PaodekuaiNumberTester(GamePaodekuaiMapper mapper) { this.mapper = mapper; }
+
+        @Override
+        public boolean testDuplicate(String code) {
+            Integer count = this.mapper.hasNumber(code);
+            return CommonUtils.predicate(count);
+        }
+    }
+
+    private static class ChangshaMahjongNumberTester implements CommonUtils.DuplicateTester {
+        private GameChangshaMahjongMapper mapper;
+
+        public ChangshaMahjongNumberTester(GameChangshaMahjongMapper mapper) { this.mapper = mapper; }
+
+        @Override
+        public boolean testDuplicate(String code) {
+            Integer count = this.mapper.hasNumber(code);
+            return CommonUtils.predicate(count);
+        }
+    }
+
+    private static class YiyangWaihuziNumberTester implements CommonUtils.DuplicateTester {
+        private GameYiyangWaihuziMapper mapper;
+
+        public YiyangWaihuziNumberTester(GameYiyangWaihuziMapper mapper) { this.mapper = mapper; }
+
+        @Override
+        public boolean testDuplicate(String code) {
+            Integer count = this.mapper.hasNumber(code);
+            return CommonUtils.predicate(count);
+        }
+    }
+
+    private static class YuanjiangQianfenNumberTester implements CommonUtils.DuplicateTester {
+        private GameYuanjiangQianfenMapper mapper;
+
+        public YuanjiangQianfenNumberTester(GameYuanjiangQianfenMapper mapper) { this.mapper = mapper; }
+
+        @Override
+        public boolean testDuplicate(String code) {
+            Integer count = this.mapper.hasNumber(code);
+            return CommonUtils.predicate(count);
+        }
+    }
+
     /**
      * 生成场地id
      * @return 场地id
@@ -391,6 +481,12 @@ public class GameServiceImpl implements IGameService {
         GameLackey lackey = null;
         GameNiu100 niu100 = null;
         GameGuanDan guanDan = null;
+        GameTaojiangMahjong taojiangMahjong = null;
+        GameHongzhongMahjong hongzhongMahjong = null;
+        GamePaodekuai paodekuai = null;
+        GameChangshaMahjong changshaMahjong = null;
+        GameYiyangWaihuzi yiyangWaihuzi = null;
+        GameYuanjiangQianfen yuanjiangQianfen = null;
         if (gameType.equals(NiuMaConstants.GAME_TYPE_MAHJONG))
             mahjong = checkCreateMahjong(playerId, json);
         else if (gameType.equals(NiuMaConstants.GAME_TYPE_BI_JI))
@@ -401,6 +497,18 @@ public class GameServiceImpl implements IGameService {
             niu100 = checkCreateNiu100(playerId, json);
         else if (gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN))
             guanDan = checkCreateGuanDan(playerId, json);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG))
+            taojiangMahjong = checkCreateTaojiangMahjong(playerId, json);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG))
+            hongzhongMahjong = checkCreateHongzhongMahjong(playerId, json);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI))
+            paodekuai = checkCreatePaodekuai(playerId, json);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG))
+            changshaMahjong = checkCreateChangshaMahjong(playerId, json);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI))
+            yiyangWaihuzi = checkCreateYiyangWaihuzi(playerId, json);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN))
+            yuanjiangQianfen = checkCreateYuanjiangQianfen(playerId, json);
         String venueId = null;
         try {
             venueId = generateVenueId();
@@ -423,6 +531,18 @@ public class GameServiceImpl implements IGameService {
                 createNiu100(niu100, venueId);
             else if (gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN))
                 createGuanDan(guanDan, venueId);
+            else if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG))
+                createTaojiangMahjong(taojiangMahjong, venueId);
+            else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG))
+                createHongzhongMahjong(hongzhongMahjong, venueId);
+            else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI))
+                createPaodekuai(paodekuai, venueId);
+            else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG))
+                createChangshaMahjong(changshaMahjong, venueId);
+            else if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI))
+                createYiyangWaihuzi(yiyangWaihuzi, venueId);
+            else if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN))
+                createYuanjiangQianfen(yuanjiangQianfen, venueId);
         } catch (Exception ex) {
             if (StringUtils.isNotEmpty(venueId)) {
                 LambdaQueryWrapper<Venue> query = Wrappers.lambdaQuery();
@@ -670,6 +790,162 @@ public class GameServiceImpl implements IGameService {
         this.guanDanMapper.insert(entity);
     }
 
+    private GameTaojiangMahjong checkCreateTaojiangMahjong(String playerId, String json) {
+        JSONObject jsonObject = JSONObject.parseObject(json);
+        if (jsonObject == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameters missing");
+        Integer level = jsonObject.getInteger("level");
+        if (level == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "未指定房间类型");
+        if (!(level.equals(GuanDanLevel.Practice.ordinal()) || level.equals(GuanDanLevel.Friend.ordinal())))
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "房间类型错误");
+        String number = null;
+        if (level.equals(GuanDanLevel.Friend.ordinal()))
+            number = this.generateNumber(new TaojiangMahjongNumberTester(this.taojiangMahjongMapper));
+        else
+            number = "practice";
+        log.info("玩家(ID：{})创建桃江麻将游戏(房号：{}", playerId, number);
+        GameTaojiangMahjong entity = new GameTaojiangMahjong();
+        entity.setNumber(number);
+        entity.setLevel(level);
+        return entity;
+    }
+
+    private void createTaojiangMahjong(GameTaojiangMahjong entity, String venueId) {
+        entity.setVenueId(venueId);
+        this.taojiangMahjongMapper.insert(entity);
+    }
+
+    private GameHongzhongMahjong checkCreateHongzhongMahjong(String playerId, String json) {
+        JSONObject jsonObject = JSONObject.parseObject(json);
+        if (jsonObject == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameters missing");
+        Integer level = jsonObject.getInteger("level");
+        if (level == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "未指定房间类型");
+        if (!(level.equals(GuanDanLevel.Practice.ordinal()) || level.equals(GuanDanLevel.Friend.ordinal())))
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "房间类型错误");
+        String number = null;
+        if (level.equals(GuanDanLevel.Friend.ordinal()))
+            number = this.generateNumber(new HongzhongMahjongNumberTester(this.hongzhongMahjongMapper));
+        else
+            number = "practice";
+        log.info("玩家(ID：{})创建红中麻将游戏(房号：{}", playerId, number);
+        GameHongzhongMahjong entity = new GameHongzhongMahjong();
+        entity.setNumber(number);
+        entity.setLevel(level);
+        return entity;
+    }
+
+    private void createHongzhongMahjong(GameHongzhongMahjong entity, String venueId) {
+        entity.setVenueId(venueId);
+        this.hongzhongMahjongMapper.insert(entity);
+    }
+
+    private GamePaodekuai checkCreatePaodekuai(String playerId, String json) {
+        JSONObject jsonObject = JSONObject.parseObject(json);
+        if (jsonObject == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameters missing");
+        Integer level = jsonObject.getInteger("level");
+        if (level == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "未指定房间类型");
+        if (!(level.equals(GuanDanLevel.Practice.ordinal()) || level.equals(GuanDanLevel.Friend.ordinal())))
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "房间类型错误");
+        String number = null;
+        if (level.equals(GuanDanLevel.Friend.ordinal()))
+            number = this.generateNumber(new PaodekuaiNumberTester(this.paodekuaiMapper));
+        else
+            number = "practice";
+        log.info("玩家(ID：{})创建跑得快游戏(房号：{}", playerId, number);
+        GamePaodekuai entity = new GamePaodekuai();
+        entity.setNumber(number);
+        entity.setLevel(level);
+        return entity;
+    }
+
+    private void createPaodekuai(GamePaodekuai entity, String venueId) {
+        entity.setVenueId(venueId);
+        this.paodekuaiMapper.insert(entity);
+    }
+
+    private GameChangshaMahjong checkCreateChangshaMahjong(String playerId, String json) {
+        JSONObject jsonObject = JSONObject.parseObject(json);
+        if (jsonObject == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameters missing");
+        Integer level = jsonObject.getInteger("level");
+        if (level == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "未指定房间类型");
+        if (!(level.equals(GuanDanLevel.Practice.ordinal()) || level.equals(GuanDanLevel.Friend.ordinal())))
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "房间类型错误");
+        String number = null;
+        if (level.equals(GuanDanLevel.Friend.ordinal()))
+            number = this.generateNumber(new ChangshaMahjongNumberTester(this.changshaMahjongMapper));
+        else
+            number = "practice";
+        log.info("玩家(ID：{})创建长沙麻将游戏(房号：{}", playerId, number);
+        GameChangshaMahjong entity = new GameChangshaMahjong();
+        entity.setNumber(number);
+        entity.setLevel(level);
+        return entity;
+    }
+
+    private void createChangshaMahjong(GameChangshaMahjong entity, String venueId) {
+        entity.setVenueId(venueId);
+        this.changshaMahjongMapper.insert(entity);
+    }
+
+    private GameYiyangWaihuzi checkCreateYiyangWaihuzi(String playerId, String json) {
+        JSONObject jsonObject = JSONObject.parseObject(json);
+        if (jsonObject == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameters missing");
+        Integer level = jsonObject.getInteger("level");
+        if (level == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "未指定房间类型");
+        if (!(level.equals(GuanDanLevel.Practice.ordinal()) || level.equals(GuanDanLevel.Friend.ordinal())))
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "房间类型错误");
+        String number = null;
+        if (level.equals(GuanDanLevel.Friend.ordinal()))
+            number = this.generateNumber(new YiyangWaihuziNumberTester(this.yiyangWaihuziMapper));
+        else
+            number = "practice";
+        log.info("玩家(ID：{})创建益阳歪胡子游戏(房号：{}", playerId, number);
+        GameYiyangWaihuzi entity = new GameYiyangWaihuzi();
+        entity.setNumber(number);
+        entity.setLevel(level);
+        return entity;
+    }
+
+    private void createYiyangWaihuzi(GameYiyangWaihuzi entity, String venueId) {
+        entity.setVenueId(venueId);
+        this.yiyangWaihuziMapper.insert(entity);
+    }
+
+    private GameYuanjiangQianfen checkCreateYuanjiangQianfen(String playerId, String json) {
+        JSONObject jsonObject = JSONObject.parseObject(json);
+        if (jsonObject == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameters missing");
+        Integer level = jsonObject.getInteger("level");
+        if (level == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "未指定房间类型");
+        if (!(level.equals(GuanDanLevel.Practice.ordinal()) || level.equals(GuanDanLevel.Friend.ordinal())))
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "房间类型错误");
+        String number = null;
+        if (level.equals(GuanDanLevel.Friend.ordinal()))
+            number = this.generateNumber(new YuanjiangQianfenNumberTester(this.yuanjiangQianfenMapper));
+        else
+            number = "practice";
+        log.info("玩家(ID：{})创建沅江千分游戏(房号：{}", playerId, number);
+        GameYuanjiangQianfen entity = new GameYuanjiangQianfen();
+        entity.setNumber(number);
+        entity.setLevel(level);
+        return entity;
+    }
+
+    private void createYuanjiangQianfen(GameYuanjiangQianfen entity, String venueId) {
+        entity.setVenueId(venueId);
+        this.yuanjiangQianfenMapper.insert(entity);
+    }
+
     @Override
     public void createDumbGame(DeferredResult<ResponseEntity<AjaxResult>> result) {
         CreateGameDTO dto = new CreateGameDTO();
@@ -686,7 +962,13 @@ public class GameServiceImpl implements IGameService {
                     gameType.equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100) ||
                     gameType.equals(NiuMaConstants.GAME_TYPE_BI_JI) ||
                     gameType.equals(NiuMaConstants.GAME_TYPE_LACKEY) ||
-                    gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN)))
+                    gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN) ||
+                    gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG) ||
+                    gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG) ||
+                    gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI) ||
+                    gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG) ||
+                    gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
+                    gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)))
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_TYPE_ERROR.getCode(), "Unsupported game type");
             LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
             String playerId = null;
@@ -890,6 +1172,18 @@ public class GameServiceImpl implements IGameService {
             venueId = this.niu100Mapper.getIdByNumber(dto.getNumber());
         else if (gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN))
             venueId = this.guanDanMapper.getIdByNumber(dto.getNumber());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG))
+            venueId = this.taojiangMahjongMapper.getIdByNumber(dto.getNumber());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG))
+            venueId = this.hongzhongMahjongMapper.getIdByNumber(dto.getNumber());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI))
+            venueId = this.paodekuaiMapper.getIdByNumber(dto.getNumber());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG))
+            venueId = this.changshaMahjongMapper.getIdByNumber(dto.getNumber());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI))
+            venueId = this.yiyangWaihuziMapper.getIdByNumber(dto.getNumber());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN))
+            venueId = this.yuanjiangQianfenMapper.getIdByNumber(dto.getNumber());
         if (StringUtils.isEmpty(venueId)) {
             AjaxResult ajax = new AjaxResult();
             ajax.put(AjaxResult.CODE_TAG, NiuMaCodeEnum.VENUE_NOT_EXIST.getCode());
@@ -1650,6 +1944,36 @@ public class GameServiceImpl implements IGameService {
     @Override
     public PageResult<GameRoomDTO> getNiu100(GameRoomReqDTO dto) {
         return this.getRooms(dto, NiuMaConstants.GAME_TYPE_NIU_NIU_100);
+    }
+
+    @Override
+    public PageResult<GameRoomDTO> getTaojiangMahjong(GameRoomReqDTO dto) {
+        return this.getRooms(dto, NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG);
+    }
+
+    @Override
+    public PageResult<GameRoomDTO> getHongzhongMahjong(GameRoomReqDTO dto) {
+        return this.getRooms(dto, NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG);
+    }
+
+    @Override
+    public PageResult<GameRoomDTO> getPaodekuai(GameRoomReqDTO dto) {
+        return this.getRooms(dto, NiuMaConstants.GAME_TYPE_PAO_DE_KUAI);
+    }
+
+    @Override
+    public PageResult<GameRoomDTO> getChangshaMahjong(GameRoomReqDTO dto) {
+        return this.getRooms(dto, NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG);
+    }
+
+    @Override
+    public PageResult<GameRoomDTO> getYiyangWaihuzi(GameRoomReqDTO dto) {
+        return this.getRooms(dto, NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI);
+    }
+
+    @Override
+    public PageResult<GameRoomDTO> getYuanjiangQianfen(GameRoomReqDTO dto) {
+        return this.getRooms(dto, NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN);
     }
 
     private PageResult<GameRoomDTO> getRooms(GameRoomReqDTO dto, Integer gameType) {

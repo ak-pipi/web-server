@@ -468,6 +468,15 @@ public class GameServiceImpl implements IGameService {
         return number;
     }
 
+    /**
+     * 保存创建房间时的玩法配置，供游戏服加载场地使用
+     */
+    private String resolveRuleConfig(String json) {
+        if (StringUtils.isEmpty(json))
+            return "{}";
+        return json;
+    }
+
     public String createGame(Integer gameType, String playerId, String base64) {
         String json = null;
         if (StringUtils.isNotEmpty(base64)) {
@@ -808,6 +817,7 @@ public class GameServiceImpl implements IGameService {
         GameTaojiangMahjong entity = new GameTaojiangMahjong();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveRuleConfig(json));
         return entity;
     }
 
@@ -834,6 +844,7 @@ public class GameServiceImpl implements IGameService {
         GameHongzhongMahjong entity = new GameHongzhongMahjong();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveRuleConfig(json));
         return entity;
     }
 
@@ -860,6 +871,7 @@ public class GameServiceImpl implements IGameService {
         GamePaodekuai entity = new GamePaodekuai();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveRuleConfig(json));
         return entity;
     }
 
@@ -886,6 +898,7 @@ public class GameServiceImpl implements IGameService {
         GameChangshaMahjong entity = new GameChangshaMahjong();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveRuleConfig(json));
         return entity;
     }
 
@@ -912,6 +925,7 @@ public class GameServiceImpl implements IGameService {
         GameYiyangWaihuzi entity = new GameYiyangWaihuzi();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveRuleConfig(json));
         return entity;
     }
 
@@ -938,6 +952,7 @@ public class GameServiceImpl implements IGameService {
         GameYuanjiangQianfen entity = new GameYuanjiangQianfen();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveRuleConfig(json));
         return entity;
     }
 

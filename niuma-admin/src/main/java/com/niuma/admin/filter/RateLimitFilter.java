@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.niuma.common.core.HttpStatusCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -41,46 +42,59 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Autowired
     private ObjectMapper objectMapper;
 
-    /** 全局每秒限制 */
-    private static final int GLOBAL_PER_SECOND = 100;
-    /** 全局每分钟限制 */
-    private static final int GLOBAL_PER_MINUTE = 600;
-    /** 写操作每分钟限制 */
-    private static final int WRITE_PER_MINUTE = 20;
-    /** 登录每分钟限制 */
-    private static final int LOGIN_PER_MINUTE = 5;
+    @Value("${rate-limit.enabled:true}")
+    private boolean enabled;
+
+    @Value("${rate-limit.global-per-second:100}")
+    private int globalPerSecond;
+
+    @Value("${rate-limit.global-per-minute:600}")
+    private int globalPerMinute;
+
+    @Value("${rate-limit.write-per-minute:20}")
+    private int writePerMinute;
+
+    @Value("${rate-limit.login-per-minute:5}")
+    private int loginPerMinute;
+
+    private static final String RATE_LIMIT_PREFIX = "rate_limit:";
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        if (!enabled) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String clientIp = getClientIp(request);
         String uri = request.getRequestURI();
         String method = request.getMethod();
 
         // 检查各维度限流
-        if (!checkLimit(clientIp + ":global:sec", clientIp, GLOBAL_PER_SECOND, Duration.ofSeconds(1))) {
-            writeLimitExceeded(response, "全局请求过于频繁(每秒" + GLOBAL_PER_SECOND + "次)");
+        if (!checkLimit(RATE_LIMIT_PREFIX + clientIp + ":global:sec", clientIp, globalPerSecond, Duration.ofSeconds(1))) {
+            writeLimitExceeded(request, response, "全局请求过于频繁(每秒" + globalPerSecond + "次)");
             return;
         }
 
-        if (!checkLimit(clientIp + ":global:min", clientIp, GLOBAL_PER_MINUTE, Duration.ofMinutes(1))) {
-            writeLimitExceeded(response, "全局请求过于频繁(每分钟" + GLOBAL_PER_MINUTE + "次)");
+        if (!checkLimit(RATE_LIMIT_PREFIX + clientIp + ":global:min", clientIp, globalPerMinute, Duration.ofMinutes(1))) {
+            writeLimitExceeded(request, response, "全局请求过于频繁(每分钟" + globalPerMinute + "次)");
             return;
         }
 
         // 写操作限流
         if ("POST".equals(method) || "PUT".equals(method) || "DELETE".equals(method)) {
-            if (!checkLimit(clientIp + ":write", clientIp, WRITE_PER_MINUTE, Duration.ofMinutes(1))) {
-                writeLimitExceeded(response, "写操作过于频繁(每分钟" + WRITE_PER_MINUTE + "次)");
+            if (!checkLimit(RATE_LIMIT_PREFIX + clientIp + ":write", clientIp, writePerMinute, Duration.ofMinutes(1))) {
+                writeLimitExceeded(request, response, "写操作过于频繁(每分钟" + writePerMinute + "次)");
                 return;
             }
         }
 
         // 登录接口特殊限流
         if (uri.contains("/login") || uri.contains("/auth")) {
-            if (!checkLimit(clientIp + ":login", clientIp, LOGIN_PER_MINUTE, Duration.ofMinutes(1))) {
-                writeLimitExceeded(response, "登录尝试过于频繁, 请稍后再试");
+            if (!checkLimit(RATE_LIMIT_PREFIX + clientIp + ":login", clientIp, loginPerMinute, Duration.ofMinutes(1))) {
+                writeLimitExceeded(request, response, "登录尝试过于频繁, 请稍后再试");
                 return;
             }
         }
@@ -99,13 +113,21 @@ public class RateLimitFilter extends OncePerRequestFilter {
      */
     private boolean checkLimit(String key, String identity, int limit, Duration window) {
         try {
-            Long currentCount = redisTemplate.opsForValue().increment(key);
+            Boolean created = redisTemplate.opsForValue().setIfAbsent(key, "1", window);
+            if (Boolean.TRUE.equals(created)) {
+                return true;
+            }
 
-            if (currentCount != null && currentCount == 1) {
+            Long currentCount = redisTemplate.opsForValue().increment(key);
+            if (currentCount == null) {
+                return true;
+            }
+
+            if (currentCount == 1) {
                 redisTemplate.expire(key, window);
             }
 
-            if (currentCount != null && currentCount > limit) {
+            if (currentCount > limit) {
                 log.warn("[限流] 触发: ip={}, key={}, count={}/{}, window={}s",
                         identity, key, currentCount, limit, window.getSeconds());
                 return false;
@@ -118,10 +140,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
     }
 
-    private void writeLimitExceeded(HttpServletResponse response, String message) throws IOException {
+    private void writeLimitExceeded(HttpServletRequest request, HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpStatusCode.SC_TOO_MANY_REQUESTS);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
+        addCorsHeaders(request, response);
 
         Map<String, Object> result = new HashMap<>();
         result.put("code", 429);
@@ -129,6 +152,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
         result.put("data", null);
 
         response.getWriter().write(objectMapper.writeValueAsString(result));
+    }
+
+    private void addCorsHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String origin = request.getHeader("Origin");
+        if (origin != null && !origin.isEmpty()) {
+            response.setHeader("Access-Control-Allow-Origin", origin);
+            response.setHeader("Access-Control-Allow-Credentials", "true");
+            response.setHeader("Vary", "Origin");
+        }
     }
 
     private String getClientIp(HttpServletRequest request) {

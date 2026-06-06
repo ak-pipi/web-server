@@ -239,9 +239,12 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         if (player == null)
             throw new InternalServerException("Current login player is null, this is unexpected");
-        String secret = CommonUtils.generatePassword(6);
         String redisKey = NiuMaRedisKeys.PLAYER_MESSAGE_SECRET + player.getId();
-        this.redisPrimitive.set(redisKey, secret);
+        String secret = this.redisPrimitive.get(redisKey);
+        if (StringUtils.isEmpty(secret)) {
+            secret = CommonUtils.generatePassword(6);
+            this.redisPrimitive.set(redisKey, secret);
+        }
         AjaxResult ajax = AjaxResult.successEx();
         ajax.put("secret", secret);
         return ajax;
@@ -266,10 +269,13 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         if (entity == null)
             throw new InternalServerException("Current player entity is null, this is unexpected");
         Capital capital = this.capitalService.getCapital(player.getId());
-        // 生成消息密钥
-        String secret = CommonUtils.generatePassword(6);
+        // 读取或生成消息密钥（登录时不轮换，避免与游戏服 Redis 不同步）
         String redisKey = NiuMaRedisKeys.PLAYER_MESSAGE_SECRET + player.getId();
-        this.redisPrimitive.set(redisKey, secret);
+        String secret = this.redisPrimitive.get(redisKey);
+        if (StringUtils.isEmpty(secret)) {
+            secret = CommonUtils.generatePassword(6);
+            this.redisPrimitive.set(redisKey, secret);
+        }
         AjaxResult ajax = AjaxResult.successEx();
         ajax.put("secret", secret);
         ajax.put("playerId", player.getId());

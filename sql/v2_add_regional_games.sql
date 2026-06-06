@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS `game_taojiang_mahjong` (
   `venue_id` varchar(16) NOT NULL COMMENT '场地id',
   `number` varchar(16) NOT NULL COMMENT '房间号',
   `level` int DEFAULT '0' COMMENT '房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房',
+  `rule_config` text NULL COMMENT '玩法配置JSON',
   PRIMARY KEY (`id`),
   UNIQUE KEY `venue_id_UNIQUE` (`venue_id`),
   KEY `number_index` (`number`)
@@ -14,6 +15,7 @@ CREATE TABLE IF NOT EXISTS `game_hongzhong_mahjong` (
   `venue_id` varchar(16) NOT NULL COMMENT '场地id',
   `number` varchar(16) NOT NULL COMMENT '房间号',
   `level` int DEFAULT '0' COMMENT '房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房',
+  `rule_config` text NULL COMMENT '玩法配置JSON',
   PRIMARY KEY (`id`),
   UNIQUE KEY `venue_id_UNIQUE` (`venue_id`),
   KEY `number_index` (`number`)
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS `game_paodekuai` (
   `venue_id` varchar(16) NOT NULL COMMENT '场地id',
   `number` varchar(16) NOT NULL COMMENT '房间号',
   `level` int DEFAULT '0' COMMENT '房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房',
+  `rule_config` text NULL COMMENT '玩法配置JSON',
   PRIMARY KEY (`id`),
   UNIQUE KEY `venue_id_UNIQUE` (`venue_id`),
   KEY `number_index` (`number`)
@@ -34,6 +37,7 @@ CREATE TABLE IF NOT EXISTS `game_changsha_mahjong` (
   `venue_id` varchar(16) NOT NULL COMMENT '场地id',
   `number` varchar(16) NOT NULL COMMENT '房间号',
   `level` int DEFAULT '0' COMMENT '房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房',
+  `rule_config` text NULL COMMENT '玩法配置JSON',
   PRIMARY KEY (`id`),
   UNIQUE KEY `venue_id_UNIQUE` (`venue_id`),
   KEY `number_index` (`number`)
@@ -44,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `game_yiyang_waihuzi` (
   `venue_id` varchar(16) NOT NULL COMMENT '场地id',
   `number` varchar(16) NOT NULL COMMENT '房间号',
   `level` int DEFAULT '0' COMMENT '房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房',
+  `rule_config` text NULL COMMENT '玩法配置JSON',
   PRIMARY KEY (`id`),
   UNIQUE KEY `venue_id_UNIQUE` (`venue_id`),
   KEY `number_index` (`number`)
@@ -54,6 +59,7 @@ CREATE TABLE IF NOT EXISTS `game_yuanjiang_qianfen` (
   `venue_id` varchar(16) NOT NULL COMMENT '场地id',
   `number` varchar(16) NOT NULL COMMENT '房间号',
   `level` int DEFAULT '0' COMMENT '房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房',
+  `rule_config` text NULL COMMENT '玩法配置JSON',
   PRIMARY KEY (`id`),
   UNIQUE KEY `venue_id_UNIQUE` (`venue_id`),
   KEY `number_index` (`number`)

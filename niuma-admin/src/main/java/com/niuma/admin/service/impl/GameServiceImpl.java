@@ -114,6 +114,9 @@ public class GameServiceImpl implements IGameService {
     private GameYuanjiangQianfenMapper yuanjiangQianfenMapper;
 
     @Resource
+    private GameTaojiangMahjongRecordMapper taojiangMahjongRecordMapper;
+
+    @Resource
     private GameFaultMapper gameFaultMapper;
 
     @Resource
@@ -2017,6 +2020,8 @@ public class GameServiceImpl implements IGameService {
             totalNum = this.lackeyMapper.countRoom(venueId, ownerId, number, startTime, endTime);
         else if (gameType.equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100))
             totalNum = this.niu100Mapper.countRoom(venueId, ownerId, number, startTime, endTime);
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG))
+            totalNum = this.taojiangMahjongMapper.countRoom(venueId, ownerId, number, startTime, endTime);
         Integer offset = (dto.getPageNum() - 1) * dto.getPageSize();
         result.setTotal(totalNum);
         if (offset >= totalNum)
@@ -2030,6 +2035,8 @@ public class GameServiceImpl implements IGameService {
             records = this.lackeyMapper.getRooms(venueId, ownerId, number, startTime, endTime, offset, dto.getPageSize());
         else if (gameType.equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100))
             records = this.niu100Mapper.getRooms(venueId, ownerId, number, startTime, endTime, offset, dto.getPageSize());
+        else if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG))
+            records = this.taojiangMahjongMapper.getRooms(venueId, ownerId, number, startTime, endTime, offset, dto.getPageSize());
         if (records != null) {
             Map<String, String> ownerMap = new HashMap<>();
             for (GameRoomDTO item : records) {
@@ -2046,5 +2053,110 @@ public class GameServiceImpl implements IGameService {
         }
         result.setRecords(records);
         return result;
+    }
+
+    @Override
+    public PageResult<TaojiangMahjongRecordDTO> getTaojiangMahjongRecord(PageBody dto) {
+        if (dto.getPageNum() < 1)
+            throw new BadRequestException(ResultCodeEnum.PAGE_NUM_ERROR);
+        if (dto.getPageSize() < 1)
+            throw new BadRequestException(ResultCodeEnum.PAGE_SIZE_ERROR);
+        LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
+        if (player == null)
+            throw new InternalServerException("Current login player is null, this is unexpected");
+        PageResult<TaojiangMahjongRecordDTO> result = new PageResult<>();
+        result.setCodeEnum(ResultCodeEnum.SUCCESS);
+        result.setPageNum(dto.getPageNum());
+        Integer totalNum = this.taojiangMahjongRecordMapper.countRecord(player.getId());
+        Integer offset = (dto.getPageNum() - 1) * dto.getPageSize();
+        result.setTotal(totalNum);
+        if (offset >= totalNum)
+            return result;
+        List<GameTaojiangMahjongRecord> records = this.taojiangMahjongRecordMapper.getRecords(player.getId(), offset, dto.getPageSize());
+        if ((records == null) || records.isEmpty())
+            return result;
+        List<TaojiangMahjongRecordDTO> dtos = new ArrayList<>();
+        Map<String, String> numberMap = new HashMap<>();
+        Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
+        List<String> playerIds = new ArrayList<>();
+        List<PlayerBaseDTO> playerInfos = null;
+        List<Integer> scores = null;
+        List<Long> winGolds = null;
+        String number = null;
+        PlayerBaseDTO pbd = null;
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss");
+        for (GameTaojiangMahjongRecord record : records) {
+            TaojiangMahjongRecordDTO tmp = new TaojiangMahjongRecordDTO();
+            tmp.setId(record.getId());
+            tmp.setVenueId(record.getVenueId());
+            if (numberMap.containsKey(record.getVenueId()))
+                number = numberMap.get(record.getVenueId());
+            else {
+                number = this.taojiangMahjongMapper.getNumber(record.getVenueId());
+                numberMap.put(record.getVenueId(), number);
+            }
+            tmp.setNumber(number);
+            tmp.setRoundNo(record.getRoundNo());
+            tmp.setBanker(record.getBanker());
+            playerIds.clear();
+            playerIds.add(record.getPlayerId0());
+            playerIds.add(record.getPlayerId1());
+            playerIds.add(record.getPlayerId2());
+            playerIds.add(record.getPlayerId3());
+            playerInfos = new ArrayList<>();
+            for (String playerId : playerIds) {
+                if (StringUtils.isEmpty(playerId)) {
+                    playerInfos.add(null);
+                    continue;
+                }
+                if (playerMap.containsKey(playerId))
+                    pbd = playerMap.get(playerId);
+                else {
+                    pbd = this.playerMapper.getBaseInfo(playerId);
+                    playerMap.put(playerId, pbd);
+                }
+                playerInfos.add(pbd);
+            }
+            tmp.setPlayers(playerInfos);
+            scores = new ArrayList<>();
+            scores.add(record.getScore0());
+            scores.add(record.getScore1());
+            scores.add(record.getScore2());
+            scores.add(record.getScore3());
+            tmp.setScores(scores);
+            winGolds = new ArrayList<>();
+            winGolds.add(record.getWinGold0());
+            winGolds.add(record.getWinGold1());
+            winGolds.add(record.getWinGold2());
+            winGolds.add(record.getWinGold3());
+            tmp.setWinGolds(winGolds);
+            if (record.getTime() != null)
+                tmp.setTime(record.getTime().format(formatter));
+            dtos.add(tmp);
+        }
+        result.setRecords(dtos);
+        return result;
+    }
+
+    @Override
+    public AjaxResult getTaojiangMahjongPlayback(Long id) {
+        if (id == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "游戏记录id不能为空");
+        LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
+        if (player == null)
+            throw new InternalServerException("Current login player is null, this is unexpected");
+        GameTaojiangMahjongRecord record = this.taojiangMahjongRecordMapper.getRecord(id);
+        if (record == null)
+            throw new NotFoundException(NiuMaCodeEnum.MAHJONG_RECORD_NOT_EXIST);
+        String playerId = player.getId();
+        if (!(playerId.equals(record.getPlayerId0()) ||
+              playerId.equals(record.getPlayerId1()) ||
+              playerId.equals(record.getPlayerId2()) ||
+              playerId.equals(record.getPlayerId3())))
+            throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "No permission to access the specified record");
+        String playback = this.taojiangMahjongRecordMapper.getPlayback(id);
+        AjaxResult ajax = AjaxResult.successEx();
+        ajax.put("data", playback);
+        return ajax;
     }
 }

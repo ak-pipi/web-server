@@ -170,4 +170,22 @@ public class GameController {
     public AjaxResult getNiu100PublicRooms() {
         return this.gameService.getNiu100PublicRooms();
     }
+
+    /**
+     * 查询桃江麻将游戏记录
+     * @param dto 请求体
+     */
+    @PostMapping("/taojiang-mahjong/record")
+    public PageResult<TaojiangMahjongRecordDTO> getTaojiangMahjongRecord(@RequestBody @Valid PageBody dto) {
+        return this.gameService.getTaojiangMahjongRecord(dto);
+    }
+
+    /**
+     * 查询桃江麻将游戏回放
+     * @param id 游戏记录id
+     */
+    @GetMapping("/taojiang-mahjong/playback")
+    public AjaxResult getTaojiangMahjongPlayback(@RequestParam("id") Long id) {
+        return this.gameService.getTaojiangMahjongPlayback(id);
+    }
 }

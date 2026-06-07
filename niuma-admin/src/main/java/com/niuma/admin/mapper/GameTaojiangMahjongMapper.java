@@ -1,9 +1,12 @@
 package com.niuma.admin.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.niuma.admin.dto.GameRoomDTO;
 import com.niuma.admin.entity.GameTaojiangMahjong;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
+
+import java.util.List;
 
 @Repository
 public interface GameTaojiangMahjongMapper extends BaseMapper<GameTaojiangMahjong> {
@@ -27,4 +30,38 @@ public interface GameTaojiangMahjongMapper extends BaseMapper<GameTaojiangMahjon
      * @return 房间编号
      */
     String getNumber(@Param("venueId") String venueId);
+
+    /**
+     * 计算房间数量
+     * @param venueId 场地id，模糊查询
+     * @param ownerId 房主id，模糊查询
+     * @param number 房间编号，模糊查询
+     * @param startTime 起始创建时间
+     * @param endTime 截止创建时间
+     * @return 房间数量
+     */
+    Integer countRoom(@Param("venueId") String venueId,
+                      @Param("ownerId") String ownerId,
+                      @Param("number") String number,
+                      @Param("startTime") String startTime,
+                      @Param("endTime") String endTime);
+
+    /**
+     * 分页获取房间列表
+     * @param venueId 场地id，模糊查询
+     * @param ownerId 房主id，模糊查询
+     * @param number 房间编号，模糊查询
+     * @param startTime 起始创建时间
+     * @param endTime 截止创建时间
+     * @param offset 偏移量
+     * @param pageSize 每页大小
+     * @return 房间列表
+     */
+    List<GameRoomDTO> getRooms(@Param("venueId") String venueId,
+                               @Param("ownerId") String ownerId,
+                               @Param("number") String number,
+                               @Param("startTime") String startTime,
+                               @Param("endTime") String endTime,
+                               @Param("offset") Integer offset,
+                               @Param("pageSize") Integer pageSize);
 }

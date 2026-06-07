@@ -144,4 +144,16 @@ public interface IGameService {
      * 查询沅江千分房间列表
      */
     PageResult<GameRoomDTO> getYuanjiangQianfen(GameRoomReqDTO dto);
+
+    /**
+     * 查询桃江麻将游戏记录
+     * @param dto 请求体
+     */
+    PageResult<TaojiangMahjongRecordDTO> getTaojiangMahjongRecord(PageBody dto);
+
+    /**
+     * 查询桃江麻将游戏回放
+     * @param id 游戏记录id
+     */
+    AjaxResult getTaojiangMahjongPlayback(Long id);
 }

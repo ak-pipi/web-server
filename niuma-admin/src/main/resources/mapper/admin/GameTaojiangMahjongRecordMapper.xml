@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.niuma.admin.mapper.GameTaojiangMahjongRecordMapper">
+
+    <select id="countRecord" resultType="Integer">
+        select count(*) from `game_taojiang_mahjong_record`
+        where `player_id0` = #{playerId}
+           or `player_id1` = #{playerId}
+           or `player_id2` = #{playerId}
+           or `player_id3` = #{playerId}
+    </select>
+
+    <select id="getRecords" resultType="com.niuma.admin.entity.GameTaojiangMahjongRecord">
+        select `id`, `venue_id` as venueId, `round_no` as roundNo, `banker`,
+               `player_id0` as playerId0, `player_id1` as playerId1,
+               `player_id2` as playerId2, `player_id3` as playerId3,
+               `score0`, `score1`, `score2`, `score3`,
+               `win_gold0` as winGold0, `win_gold1` as winGold1,
+               `win_gold2` as winGold2, `win_gold3` as winGold3,
+               `time`
+        from `game_taojiang_mahjong_record`
+        where `player_id0` = #{playerId}
+           or `player_id1` = #{playerId}
+           or `player_id2` = #{playerId}
+           or `player_id3` = #{playerId}
+        order by `id` desc
+        limit #{offset}, #{pageSize}
+    </select>
+
+    <select id="getRecord" resultType="com.niuma.admin.entity.GameTaojiangMahjongRecord">
+        select `id`, `venue_id` as venueId, `round_no` as roundNo, `banker`,
+               `player_id0` as playerId0, `player_id1` as playerId1,
+               `player_id2` as playerId2, `player_id3` as playerId3,
+               `score0`, `score1`, `score2`, `score3`,
+               `win_gold0` as winGold0, `win_gold1` as winGold1,
+               `win_gold2` as winGold2, `win_gold3` as winGold3,
+               `random_seed_hash` as randomSeedHash,
+               `time`
+        from `game_taojiang_mahjong_record`
+        where `id` = #{id}
+    </select>
+
+    <select id="getPlayback" resultType="String">
+        select `playback` from `game_taojiang_mahjong_record` where `id` = #{id}
+    </select>
+
+</mapper>

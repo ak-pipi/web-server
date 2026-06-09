@@ -9,6 +9,7 @@ import com.niuma.admin.constant.NiuMaRedisKeys;
 import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.Capital;
 import com.niuma.admin.entity.Player;
+import com.niuma.admin.entity.Venue;
 import com.niuma.admin.entity.Robot;
 import com.niuma.admin.factory.PlayerAsyncFactory;
 import com.niuma.admin.mapper.*;
@@ -251,13 +252,39 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
     }
 
     @Override
-    public void heartbeat() {
+    public AjaxResult heartbeat() {
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         if (player == null)
             throw new InternalServerException("Current login player is null, this is unexpected");
         Long nowTime = System.currentTimeMillis();
         nowTime /= 1000L;
         this.baseMapper.updateHeartbeat(player.getId(), nowTime);
+
+        AjaxResult ajax = AjaxResult.successEx();
+        String venueId = this.redisPrimitive.get(NiuMaRedisKeys.PLAYER_CURRENT_VENUE + player.getId());
+        if (StringUtils.isEmpty(venueId)) {
+            ajax.put("inRoom", false);
+            return ajax;
+        }
+
+        ajax.put("inRoom", true);
+        ajax.put("venueId", venueId);
+
+        Venue venue = this.venueMapper.selectById(venueId);
+        if (venue != null && venue.getGameType() != null) {
+            ajax.put("gameType", venue.getGameType());
+        }
+
+        String serverId = this.redisPrimitive.get(NiuMaRedisKeys.VENUE_SERVER_MAP + venueId);
+        if (StringUtils.isNotEmpty(serverId)) {
+            ajax.put("serverId", serverId);
+            String wsAddress = this.redisPrimitive.get(NiuMaRedisKeys.SERVER_WS_ADDRESS + serverId);
+            if (StringUtils.isNotEmpty(wsAddress)) {
+                ajax.put("wsAddress", wsAddress);
+            }
+        }
+
+        return ajax;
     }
 
     @Override

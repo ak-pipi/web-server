@@ -38,7 +38,7 @@ public interface IPlayerService extends IService<Player> {
     /**
      * 玩家心跳
      */
-    void heartbeat();
+    AjaxResult heartbeat();
 
     AjaxResult getInfo();
 

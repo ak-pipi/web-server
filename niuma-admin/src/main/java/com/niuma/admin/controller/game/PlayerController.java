@@ -76,8 +76,7 @@ public class PlayerController {
      */
     @GetMapping("/heartbeat")
     public AjaxResult heartbeat() {
-        this.playerService.heartbeat();
-        return AjaxResult.success();
+        return this.playerService.heartbeat();
     }
 
     /**

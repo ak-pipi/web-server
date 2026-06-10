@@ -169,6 +169,10 @@ public class GameServiceImpl implements IGameService {
                     this.redisPrimitive.delete(lockKey);
                     throw new ForbiddenException(NiuMaCodeEnum.PLAYER_ENTER_FREQUENTLY);
                 }
+                if (delta > 300000L) {
+                    // 授权数据超过5分钟，属于历史残留，清理掉
+                    this.redisCache.deleteObject(enterKey);
+                }
             }
         }
         if (!test) {
@@ -206,8 +210,11 @@ public class GameServiceImpl implements IGameService {
         // 查询当前场地所在的服务器ID
         String redisKey = NiuMaRedisKeys.VENUE_SERVER_MAP + currentVenue;
         String routingKey = this.redisPrimitive.get(redisKey);
-        if (StringUtils.isEmpty(routingKey))
+        if (StringUtils.isEmpty(routingKey)) {
+            // 场地映射已丢失，清理脏数据
+            clearPlayerVenueCache(playerId, currentVenue);
             return null;
+        }
         // 查询服务器是否在线
         redisKey = NiuMaRedisKeys.SERVER_KEEP_ALIVE + routingKey;
         boolean test = false;
@@ -232,6 +239,8 @@ public class GameServiceImpl implements IGameService {
                 this.gameFaultMapper.insert(gameFault);
             }
             log.error("Player(id: {}) try leave current venue(id: {}) which on server(id: {}), but the server if offline.", playerId, currentVenue, routingKey);
+            // 清理残留的Redis缓存，避免玩家下次请求被卡住
+            clearPlayerVenueCache(playerId, currentVenue);
             throw new InternalServerException(NiuMaCodeEnum.SERVER_INACCESSIBLE);
         }
         MqCommandDeferred actionDeferred = createCommandDeferred(playerId);
@@ -249,6 +258,22 @@ public class GameServiceImpl implements IGameService {
         msg.setMsgPack(base64);
         this.rabbitSender.sendObject(this.gameExchange, routingKey, msg);
         return actionDeferred;
+    }
+
+    /**
+     * 清理玩家场地相关的Redis缓存残留
+     * 当C++游戏服务器离线或场地映射丢失时，需要清理这些key以避免玩家被卡住。
+     * 注意：不清理player_authorized_venue，因为该key由C++服务器在玩家离开场地时清理，
+     * 提前清理会导致已进入场地的玩家断线重连时auth检查失败。
+     * @param playerId 玩家id
+     * @param venueId 场地id（可为null）
+     */
+    private void clearPlayerVenueCache(String playerId, String venueId) {
+        this.redisPrimitive.delete(NiuMaRedisKeys.PLAYER_CURRENT_VENUE + playerId);
+        this.redisCache.deleteObject(NiuMaRedisKeys.PLAYER_ENTER_DATA + playerId);
+        if (StringUtils.isNotEmpty(venueId)) {
+            this.redisPrimitive.delete(NiuMaRedisKeys.VENUE_SERVER_MAP + venueId);
+        }
     }
 
     private boolean hasCommand(String commandId) {

@@ -1,6 +1,7 @@
 package com.niuma.admin.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -35,5 +36,6 @@ public class GameTaojiangMahjong {
     /**
      * 玩法配置JSON，游戏服加载场地时使用
      */
+    @TableField("rule_config")
     private String ruleConfig;
 }

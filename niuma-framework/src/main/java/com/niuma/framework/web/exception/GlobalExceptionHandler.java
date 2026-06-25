@@ -219,7 +219,7 @@ public class GlobalExceptionHandler
      * @date 2024.09.04
      */
     @ExceptionHandler(InternalServerException.class)
-    @ResponseStatus(org.springframework.http.HttpStatus.NOT_FOUND)
+    @ResponseStatus(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR)
     public AjaxResult handleInternalServerException(InternalServerException e) {
         log.error(e.getMessage(), e);
         return handleHttpException(e.getCode(), e.getMessage());

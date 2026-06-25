@@ -1252,6 +1252,24 @@ public class GameServiceImpl implements IGameService {
                 districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_ADVANCED) ||
                 districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_MASTER))
             ret = 4;
+        // 桃江麻将 2人
+        else if (isTaojiangDistrict(districtId))
+            ret = 2;
+        // 红中麻将 4人
+        else if (isHongzhongDistrict(districtId))
+            ret = 4;
+        // 长沙麻将 4人
+        else if (isChangshaDistrict(districtId))
+            ret = 4;
+        // 跑得快 3人
+        else if (isPaodekuaiDistrict(districtId))
+            ret = 3;
+        // 歪胡子 2人
+        else if (isWaihuziDistrict(districtId))
+            ret = 2;
+        // 沅江千分 4人
+        else if (isQianfenDistrict(districtId))
+            ret = 4;
         return ret;
     }
 
@@ -1360,6 +1378,18 @@ public class GameServiceImpl implements IGameService {
                 venueId = notFullVenues.get(i);
                 if (((emptyIndex < 0) || (i < emptyIndex)) && (trackMap != null) && trackMap.containsKey(venueId))
                     continue;
+                // 检查场地在数据库中的状态，跳过已结束或异常的场地
+                Venue venueEntity = this.venueMapper.selectById(venueId);
+                if (venueEntity == null || !venueEntity.getStatus().equals(0)) {
+                    // 场地不存在或已结束，从 Redis 中移除
+                    this.redisPrimitive.hDelete(notFullKey, venueId);
+                    // 清理该场地的授权记录
+                    String cleanupAuthKey = NiuMaRedisKeys.DISTRICT_AUTHORIZED_TIMES;
+                    cleanupAuthKey = cleanupAuthKey.replace("{0}", districtId.toString());
+                    cleanupAuthKey = cleanupAuthKey.replace("{1}", venueId);
+                    this.redisPrimitive.delete(cleanupAuthKey);
+                    continue;
+                }
                 lockKey = NiuMaRedisKeys.DISTRICT_AUTHORIZED_LOCK;
                 lockKey = lockKey.replace("{0}", districtId.toString());
                 lockKey = lockKey.replace("{1}", venueId);
@@ -1500,7 +1530,166 @@ public class GameServiceImpl implements IGameService {
             }
             this.guanDanMapper.insert(entity);
         }
+        // 桃江麻将 districts (9-16)
+        else if (isTaojiangDistrict(districtId)) {
+            venueId = generateVenueId();
+            venue.setId(venueId);
+            venue.setGameType(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG);
+            this.venueMapper.insert(venue);
+            String number = "dist-" + districtId.toString();
+            GameTaojiangMahjong entity = new GameTaojiangMahjong();
+            entity.setNumber(number);
+            entity.setVenueId(venueId);
+            entity.setLevel(GuanDanLevel.Beginner.ordinal());
+            entity.setRuleConfig(buildDistrictRuleConfig(resolveTaojiangBaseScore(districtId), resolveTaojiangRoundCount(districtId)));
+            this.taojiangMahjongMapper.insert(entity);
+        }
+        // 红中麻将 districts (17-20)
+        else if (isHongzhongDistrict(districtId)) {
+            venueId = generateVenueId();
+            venue.setId(venueId);
+            venue.setGameType(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG);
+            this.venueMapper.insert(venue);
+            String number = "dist-" + districtId.toString();
+            GameHongzhongMahjong entity = new GameHongzhongMahjong();
+            entity.setNumber(number);
+            entity.setVenueId(venueId);
+            entity.setLevel(GuanDanLevel.Beginner.ordinal());
+            entity.setRuleConfig(buildDistrictRuleConfig(resolveHongzhongBaseScore(districtId), 8));
+            this.hongzhongMahjongMapper.insert(entity);
+        }
+        // 长沙麻将 districts (21-24)
+        else if (isChangshaDistrict(districtId)) {
+            venueId = generateVenueId();
+            venue.setId(venueId);
+            venue.setGameType(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG);
+            this.venueMapper.insert(venue);
+            String number = "dist-" + districtId.toString();
+            GameChangshaMahjong entity = new GameChangshaMahjong();
+            entity.setNumber(number);
+            entity.setVenueId(venueId);
+            entity.setLevel(GuanDanLevel.Beginner.ordinal());
+            entity.setRuleConfig(buildDistrictRuleConfig(resolveChangshaBaseScore(districtId), 8));
+            this.changshaMahjongMapper.insert(entity);
+        }
+        // 跑得快 districts (25-28)
+        else if (isPaodekuaiDistrict(districtId)) {
+            venueId = generateVenueId();
+            venue.setId(venueId);
+            venue.setGameType(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI);
+            this.venueMapper.insert(venue);
+            String number = "dist-" + districtId.toString();
+            GamePaodekuai entity = new GamePaodekuai();
+            entity.setNumber(number);
+            entity.setVenueId(venueId);
+            entity.setLevel(GuanDanLevel.Beginner.ordinal());
+            entity.setRuleConfig(buildDistrictRuleConfig(resolvePaodekuaiBaseScore(districtId), 8));
+            this.paodekuaiMapper.insert(entity);
+        }
+        // 歪胡子 districts (29-32)
+        else if (isWaihuziDistrict(districtId)) {
+            venueId = generateVenueId();
+            venue.setId(venueId);
+            venue.setGameType(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI);
+            this.venueMapper.insert(venue);
+            String number = "dist-" + districtId.toString();
+            GameYiyangWaihuzi entity = new GameYiyangWaihuzi();
+            entity.setNumber(number);
+            entity.setVenueId(venueId);
+            entity.setLevel(GuanDanLevel.Beginner.ordinal());
+            entity.setRuleConfig(buildDistrictRuleConfig(resolveWaihuziBaseScore(districtId), 8));
+            this.yiyangWaihuziMapper.insert(entity);
+        }
+        // 沅江千分 districts (33-36)
+        else if (isQianfenDistrict(districtId)) {
+            venueId = generateVenueId();
+            venue.setId(venueId);
+            venue.setGameType(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN);
+            this.venueMapper.insert(venue);
+            String number = "dist-" + districtId.toString();
+            GameYuanjiangQianfen entity = new GameYuanjiangQianfen();
+            entity.setNumber(number);
+            entity.setVenueId(venueId);
+            entity.setLevel(GuanDanLevel.Beginner.ordinal());
+            entity.setRuleConfig(buildDistrictRuleConfig(resolveQianfenBaseScore(districtId), 8));
+            this.yuanjiangQianfenMapper.insert(entity);
+        }
         return venueId;
+    }
+
+    // ==================== District 判断辅助方法 ====================
+
+    private boolean isTaojiangDistrict(int id) {
+        return id >= NiuMaConstants.DISTRICT_TAOJIANG_B1_R4 && id <= NiuMaConstants.DISTRICT_TAOJIANG_B10_R16;
+    }
+    private boolean isHongzhongDistrict(int id) {
+        return id >= NiuMaConstants.DISTRICT_HONGZHONG_B1_R8 && id <= NiuMaConstants.DISTRICT_HONGZHONG_B10_R8;
+    }
+    private boolean isChangshaDistrict(int id) {
+        return id >= NiuMaConstants.DISTRICT_CHANGSHA_B1_R8 && id <= NiuMaConstants.DISTRICT_CHANGSHA_B10_R8;
+    }
+    private boolean isPaodekuaiDistrict(int id) {
+        return id >= NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8 && id <= NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8;
+    }
+    private boolean isWaihuziDistrict(int id) {
+        return id >= NiuMaConstants.DISTRICT_WAIHUZI_B1_R8 && id <= NiuMaConstants.DISTRICT_WAIHUZI_B10_R8;
+    }
+    private boolean isQianfenDistrict(int id) {
+        return id >= NiuMaConstants.DISTRICT_QIANFEN_B1_R8 && id <= NiuMaConstants.DISTRICT_QIANFEN_B10_R8;
+    }
+
+    /** 构造 district 场地的 ruleConfig JSON */
+    private String buildDistrictRuleConfig(int baseScore, int roundCount) {
+        JSONObject rule = new JSONObject();
+        rule.put("level", 3);
+        rule.put("base_score", baseScore);
+        rule.put("round_count", roundCount);
+        rule.put("max_score", 0);
+        return rule.toJSONString();
+    }
+
+    // ==================== District -> baseScore/roundCount 映射 ====================
+
+    private int resolveTaojiangBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_TAOJIANG_B1_R4 || id == NiuMaConstants.DISTRICT_TAOJIANG_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_TAOJIANG_B2_R8 || id == NiuMaConstants.DISTRICT_TAOJIANG_B2_R16) return 2;
+        if (id == NiuMaConstants.DISTRICT_TAOJIANG_B5_R8 || id == NiuMaConstants.DISTRICT_TAOJIANG_B5_R16) return 5;
+        return 10; // B10
+    }
+    private int resolveTaojiangRoundCount(int id) {
+        if (id == NiuMaConstants.DISTRICT_TAOJIANG_B1_R4) return 4;
+        if (id == NiuMaConstants.DISTRICT_TAOJIANG_B10_R16 || id == NiuMaConstants.DISTRICT_TAOJIANG_B5_R16 || id == NiuMaConstants.DISTRICT_TAOJIANG_B2_R16) return 16;
+        return 8;
+    }
+    private int resolveHongzhongBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B2_R8) return 2;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R8) return 5;
+        return 10;
+    }
+    private int resolveChangshaBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B2_R8) return 2;
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B5_R8) return 5;
+        return 10;
+    }
+    private int resolvePaodekuaiBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8) return 2;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8) return 5;
+        return 10;
+    }
+    private int resolveWaihuziBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_WAIHUZI_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_WAIHUZI_B2_R8) return 2;
+        if (id == NiuMaConstants.DISTRICT_WAIHUZI_B5_R8) return 5;
+        return 10;
+    }
+    private int resolveQianfenBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_QIANFEN_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_QIANFEN_B2_R8) return 2;
+        if (id == NiuMaConstants.DISTRICT_QIANFEN_B5_R8) return 5;
+        return 10;
     }
 
     @Override

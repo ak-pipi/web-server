@@ -146,4 +146,50 @@ public final class NiuMaConstants {
      * 区域ID-掼蛋大师房
      */
     public static final int DISTRICT_GUAN_DAN_MASTER = 8;
+
+    // ==================== 桃江麻将 District ====================
+
+    public static final int DISTRICT_TAOJIANG_B1_R4 = 9;
+    public static final int DISTRICT_TAOJIANG_B1_R8 = 10;
+    public static final int DISTRICT_TAOJIANG_B2_R8 = 11;
+    public static final int DISTRICT_TAOJIANG_B2_R16 = 12;
+    public static final int DISTRICT_TAOJIANG_B5_R8 = 13;
+    public static final int DISTRICT_TAOJIANG_B5_R16 = 14;
+    public static final int DISTRICT_TAOJIANG_B10_R8 = 15;
+    public static final int DISTRICT_TAOJIANG_B10_R16 = 16;
+
+    // ==================== 红中麻将 District ====================
+
+    public static final int DISTRICT_HONGZHONG_B1_R8 = 17;
+    public static final int DISTRICT_HONGZHONG_B2_R8 = 18;
+    public static final int DISTRICT_HONGZHONG_B5_R8 = 19;
+    public static final int DISTRICT_HONGZHONG_B10_R8 = 20;
+
+    // ==================== 长沙麻将 District ====================
+
+    public static final int DISTRICT_CHANGSHA_B1_R8 = 21;
+    public static final int DISTRICT_CHANGSHA_B2_R8 = 22;
+    public static final int DISTRICT_CHANGSHA_B5_R8 = 23;
+    public static final int DISTRICT_CHANGSHA_B10_R8 = 24;
+
+    // ==================== 跑得快 District ====================
+
+    public static final int DISTRICT_PAO_DE_KUAI_B1_R8 = 25;
+    public static final int DISTRICT_PAO_DE_KUAI_B2_R8 = 26;
+    public static final int DISTRICT_PAO_DE_KUAI_B5_R8 = 27;
+    public static final int DISTRICT_PAO_DE_KUAI_B10_R8 = 28;
+
+    // ==================== 歪胡子 District ====================
+
+    public static final int DISTRICT_WAIHUZI_B1_R8 = 29;
+    public static final int DISTRICT_WAIHUZI_B2_R8 = 30;
+    public static final int DISTRICT_WAIHUZI_B5_R8 = 31;
+    public static final int DISTRICT_WAIHUZI_B10_R8 = 32;
+
+    // ==================== 沅江千分 District ====================
+
+    public static final int DISTRICT_QIANFEN_B1_R8 = 33;
+    public static final int DISTRICT_QIANFEN_B2_R8 = 34;
+    public static final int DISTRICT_QIANFEN_B5_R8 = 35;
+    public static final int DISTRICT_QIANFEN_B10_R8 = 36;
 }

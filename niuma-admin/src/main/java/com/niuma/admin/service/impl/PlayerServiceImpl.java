@@ -132,12 +132,12 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         this.baseMapper.updateLogin(id, IpUtils.getIpAddr());
         AsyncManager.me().execute(this.playerAsyncFactory.recordPlayerLogin(id, entity.getNickname()));
         // 生成消息密钥
-        /*String secret = CommonUtils.generatePassword(6);
-        String redisKey = NiuMaRedisKeys.PLAYER_MESSAGE_SECRET + player.getId();
-        this.redisPrimitive.set(redisKey, secret);*/
+        String secret = CommonUtils.generatePassword(6);
+        String secretKey = NiuMaRedisKeys.PLAYER_MESSAGE_SECRET + player.getId();
+        this.redisPrimitive.set(secretKey, secret);
         // 设置响应字段
         AjaxResult ajax = AjaxResult.successEx();
-        //ajax.put("secret", secret);
+        ajax.put("secret", secret);
         ajax.put("token", token);
         return ajax;
     }

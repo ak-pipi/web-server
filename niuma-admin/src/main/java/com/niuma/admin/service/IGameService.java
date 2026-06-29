@@ -53,6 +53,12 @@ public interface IGameService {
     AjaxResult getDistrictPlayerCount(Integer districtId);
 
     /**
+     * 查询区域内可加入的房间列表（选桌）
+     * @param districtId 区域id
+     */
+    AjaxResult getDistrictVenues(Integer districtId);
+
+    /**
      * 消费RabbitMQ消息
      * @param msg 消息
      */

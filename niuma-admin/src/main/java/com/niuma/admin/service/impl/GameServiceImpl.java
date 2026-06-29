@@ -1807,6 +1807,48 @@ public class GameServiceImpl implements IGameService {
     }
 
     @Override
+    public AjaxResult getDistrictVenues(Integer districtId) {
+        District entity = this.districtMapper.selectById(districtId);
+        if (entity == null)
+            throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        int maxPlayerNum = this.getDistrictPlayerLimit(districtId);
+        // 从 Redis 读取区域内未满场地列表（venueId -> playerCount）
+        String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
+        Map<String, String> notFullMap = this.redisPrimitive.getMap(notFullKey);
+        List<Map<String, Object>> venues = new ArrayList<>();
+        if (notFullMap != null) {
+            for (Map.Entry<String, String> entry : notFullMap.entrySet()) {
+                String venueId = entry.getKey();
+                int playerCount = 0;
+                try {
+                    playerCount = Integer.parseInt(entry.getValue());
+                } catch (NumberFormatException ex) {
+                    continue;
+                }
+                // 只返回有空位的房间（playerCount < maxPlayerNum）
+                if (playerCount >= maxPlayerNum)
+                    continue;
+                // 校验场地状态是否正常
+                Venue venueEntity = this.venueMapper.selectById(venueId);
+                if (venueEntity == null || !venueEntity.getStatus().equals(0))
+                    continue;
+                Map<String, Object> item = new HashMap<>();
+                item.put("venueId", venueId);
+                item.put("playerCount", playerCount);
+                item.put("maxPlayerNums", maxPlayerNum);
+                venues.add(item);
+            }
+        }
+        // 按人数从多到少排序（优先展示快满的房间）
+        venues.sort((a, b) -> Integer.compare(
+            (int) b.get("playerCount"), (int) a.get("playerCount")));
+        AjaxResult result = AjaxResult.successEx();
+        result.put("items", venues);
+        result.put("maxPlayerNums", maxPlayerNum);
+        return result;
+    }
+
+    @Override
     public void consume(MqMessage msg) {
         String json = null;
         try {

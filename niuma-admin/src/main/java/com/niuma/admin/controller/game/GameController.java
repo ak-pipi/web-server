@@ -129,6 +129,15 @@ public class GameController {
     }
 
     /**
+     * 查询区域内可加入的房间列表（选桌）
+     * @param districtId 区域id
+     */
+    @GetMapping("/district/venues")
+    public AjaxResult getDistrictVenues(@RequestParam("districtId") Integer districtId) {
+        return this.gameService.getDistrictVenues(districtId);
+    }
+
+    /**
      * 查询麻将游戏记录
      * @param dto 请求体
      */

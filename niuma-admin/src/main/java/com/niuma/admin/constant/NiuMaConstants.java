@@ -149,14 +149,14 @@ public final class NiuMaConstants {
 
     // ==================== 桃江麻将 District ====================
 
-    public static final int DISTRICT_TAOJIANG_B1_R4 = 9;
-    public static final int DISTRICT_TAOJIANG_B1_R8 = 10;
-    public static final int DISTRICT_TAOJIANG_B2_R8 = 11;
-    public static final int DISTRICT_TAOJIANG_B2_R16 = 12;
-    public static final int DISTRICT_TAOJIANG_B5_R8 = 13;
-    public static final int DISTRICT_TAOJIANG_B5_R16 = 14;
+    public static final int DISTRICT_TAOJIANG_B5_R1 = 9;
+    public static final int DISTRICT_TAOJIANG_B10_R1 = 10;
+    public static final int DISTRICT_TAOJIANG_B25_R1 = 11;
+    public static final int DISTRICT_TAOJIANG_B1_R8 = 12;
+    public static final int DISTRICT_TAOJIANG_B2_R8 = 13;
+    public static final int DISTRICT_TAOJIANG_B5_R8 = 14;
     public static final int DISTRICT_TAOJIANG_B10_R8 = 15;
-    public static final int DISTRICT_TAOJIANG_B10_R16 = 16;
+    public static final int DISTRICT_TAOJIANG_B20_R8 = 16;
 
     // ==================== 红中麻将 District ====================
 
@@ -192,4 +192,11 @@ public final class NiuMaConstants {
     public static final int DISTRICT_QIANFEN_B2_R8 = 34;
     public static final int DISTRICT_QIANFEN_B5_R8 = 35;
     public static final int DISTRICT_QIANFEN_B10_R8 = 36;
+
+    // ==================== 斗地主 District ====================
+
+    public static final int DISTRICT_DOU_DI_ZHU_B1_R8 = 37;
+    public static final int DISTRICT_DOU_DI_ZHU_B2_R8 = 38;
+    public static final int DISTRICT_DOU_DI_ZHU_B5_R8 = 39;
+    public static final int DISTRICT_DOU_DI_ZHU_B10_R8 = 40;
 }

@@ -122,6 +122,11 @@ public interface IGameService {
     PageResult<GameRoomDTO> getNiu100(GameRoomReqDTO dto);
 
     /**
+     * 查询斗地主房间列表
+     */
+    PageResult<GameRoomDTO> getDoudizhu(GameRoomReqDTO dto);
+
+    /**
      * 查询桃江麻将房间列表
      */
     PageResult<GameRoomDTO> getTaojiangMahjong(GameRoomReqDTO dto);

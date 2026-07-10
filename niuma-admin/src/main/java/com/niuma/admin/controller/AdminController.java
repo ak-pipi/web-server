@@ -96,6 +96,17 @@ public class AdminController {
     }
 
     /**
+     * 查询斗地主房间列表
+     * @param dto 请求体
+     * @return 分页房间数据
+     */
+    @PostMapping("/doudizhu/page")
+    @PreAuthorize("@ss.hasPermi('niuma:doudizhu')")
+    public PageResult<GameRoomDTO> getDoudizhu(@RequestBody GameRoomReqDTO dto) {
+        return this.gameService.getDoudizhu(dto);
+    }
+
+    /**
      * 创建机器人
      * @param dto 机器人昵称列表，以英文逗号分隔
      * @return

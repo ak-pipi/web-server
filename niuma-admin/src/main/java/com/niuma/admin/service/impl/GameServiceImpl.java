@@ -47,6 +47,9 @@ import java.util.concurrent.locks.ReentrantLock;
 @Service
 @Slf4j
 public class GameServiceImpl implements IGameService {
+    private static final int DOUDIZHU_HAND_CARD_COUNT = 20;
+    private static final int DOUDIZHU_BOTTOM_CARD_COUNT = 3;
+
     /**
      * 用于Java内部数据类型的缓存
      */
@@ -578,6 +581,77 @@ public class GameServiceImpl implements IGameService {
     }
 
     /**
+     * 红中麻将规则统一归一化，避免客户端旧参数绕过游戏服固定玩法。
+     */
+    private String resolveHongzhongRuleConfig(String json) {
+        JSONObject raw = StringUtils.isEmpty(json) ? null : JSONObject.parseObject(json);
+        if (raw == null)
+            raw = new JSONObject();
+        JSONObject rule = new JSONObject();
+        Integer level = raw.getInteger("level");
+        if (level != null)
+            rule.put("level", level);
+
+        int roundCount = normalizeHongzhongRoundCount(raw.getInteger("round_count"));
+        int baseScore = normalizeHongzhongBaseScore(raw.getInteger("base_score"));
+        fillHongzhongRuleDefaults(rule, baseScore, roundCount);
+        return rule.toJSONString();
+    }
+
+    private int normalizeHongzhongRoundCount(Integer roundCount) {
+        return (roundCount != null && roundCount == 1) ? 1 : 8;
+    }
+
+    private int normalizeHongzhongBaseScore(Integer baseScore) {
+        int score = baseScore == null ? 0 : baseScore;
+        int[] validScores = new int[] {1, 2, 3, 5, 10, 20};
+        for (int validScore : validScores) {
+            if (score == validScore)
+                return score;
+        }
+        return validScores[0];
+    }
+
+    private int resolveHongzhongRoomFee(int baseScore) {
+        if (baseScore == 1 || baseScore == 2) return 2;
+        if (baseScore == 3) return 3;
+        if (baseScore == 5) return 4;
+        if (baseScore == 10) return 6;
+        if (baseScore == 20) return 7;
+        return 2;
+    }
+
+    private void fillHongzhongRuleDefaults(JSONObject rule, int baseScore, int roundCount) {
+        int roomFee = resolveHongzhongRoomFee(baseScore);
+        rule.put("base_score", baseScore);
+        rule.put("round_count", roundCount);
+        rule.put("max_score", 0);
+        rule.put("room_fee_type", roomFee);
+        rule.put("room_fee", roomFee);
+        rule.put("allow_chi", false);
+        rule.put("allow_peng", true);
+        rule.put("allow_gang", true);
+        rule.put("allow_zimo", true);
+        rule.put("allow_dianpao", true);
+        rule.put("laizi_enabled", true);
+        rule.put("hongzhong_enabled", true);
+        rule.put("bao_ting_enabled", false);
+        rule.put("dao_di_hu_enabled", false);
+        rule.put("qidui_enabled", true);
+        rule.put("pengpenghu_enabled", true);
+        rule.put("qingyise_enabled", true);
+        rule.put("zimo_double", false);
+        rule.put("bird_count", 1);
+        rule.put("bird_rule", "one_hit_number_multiplier");
+        rule.put("allow_qianggang_hu", true);
+        rule.put("qianggang_only_jiagang", true);
+        rule.put("dianpao_without_hongzhong_only", true);
+        rule.put("dissolve_vote", true);
+        rule.put("banker_rule", 0);
+        rule.put("tile_count", 112);
+    }
+
+    /**
      * 跑得快规则统一归一化：当前系统只开放两人15张玩法。
      */
     private String resolvePaodekuaiRuleConfig(String json) {
@@ -947,8 +1021,9 @@ public class GameServiceImpl implements IGameService {
         Integer maxScore = raw.getInteger("max_score");
         rule.put("max_score", maxScore != null && maxScore > 0 ? maxScore : 0);
         rule.put("player_count", 2);
-        rule.put("remove_three_and_four", true);
-        rule.put("bottom_card_count", 3);
+        rule.put("remove_three_and_four", false);
+        rule.put("hand_card_count", DOUDIZHU_HAND_CARD_COUNT);
+        rule.put("bottom_card_count", DOUDIZHU_BOTTOM_CARD_COUNT);
         return rule.toJSONString();
     }
 
@@ -1050,7 +1125,7 @@ public class GameServiceImpl implements IGameService {
         GameHongzhongMahjong entity = new GameHongzhongMahjong();
         entity.setNumber(number);
         entity.setLevel(level);
-        entity.setRuleConfig(resolveRuleConfig(json));
+        entity.setRuleConfig(resolveHongzhongRuleConfig(json));
         return entity;
     }
 
@@ -1739,7 +1814,7 @@ public class GameServiceImpl implements IGameService {
             entity.setNumber(number);
             entity.setVenueId(venueId);
             entity.setLevel(GuanDanLevel.Beginner.ordinal());
-            entity.setRuleConfig(buildDistrictRuleConfig(resolveHongzhongBaseScore(districtId), 8));
+            entity.setRuleConfig(buildHongzhongDistrictRuleConfig(resolveHongzhongBaseScore(districtId), 8));
             this.hongzhongMahjongMapper.insert(entity);
         }
         // 长沙麻将 districts (21-24)
@@ -1857,6 +1932,14 @@ public class GameServiceImpl implements IGameService {
         return rule.toJSONString();
     }
 
+    /** 构造红中麻将 district 场地的 ruleConfig JSON */
+    private String buildHongzhongDistrictRuleConfig(int baseScore, int roundCount) {
+        JSONObject rule = new JSONObject();
+        rule.put("level", 3);
+        fillHongzhongRuleDefaults(rule, baseScore, roundCount);
+        return rule.toJSONString();
+    }
+
     private String buildDoudizhuDistrictRuleConfig(int baseScore, int roundCount) {
         JSONObject rule = new JSONObject();
         rule.put("level", 3);
@@ -1864,8 +1947,9 @@ public class GameServiceImpl implements IGameService {
         rule.put("round_count", roundCount);
         rule.put("max_score", 0);
         rule.put("player_count", 2);
-        rule.put("remove_three_and_four", true);
-        rule.put("bottom_card_count", 3);
+        rule.put("remove_three_and_four", false);
+        rule.put("hand_card_count", DOUDIZHU_HAND_CARD_COUNT);
+        rule.put("bottom_card_count", DOUDIZHU_BOTTOM_CARD_COUNT);
         return rule.toJSONString();
     }
 
@@ -2001,7 +2085,7 @@ public class GameServiceImpl implements IGameService {
             }
             if (test) {
                 String text = this.redisPrimitive.hGet(countKey, "playerCount");
-                if (StringUtils.isNotEmpty(time)) {
+                if (StringUtils.isNotEmpty(text)) {
                     try {
                         playerCount = Integer.parseInt(text);
                         AjaxResult ajax = AjaxResult.successEx();

@@ -698,7 +698,9 @@ public class GameServiceImpl implements IGameService {
         rule.put("max_score", 0);
         rule.put("allow_pass", true);
         rule.put("force_play_if_can_beat", true);
-        rule.put("must_include_spade3", true);
+        rule.put("must_include_spade3", false);
+        rule.put("first_lead_rule", "first_round_random_then_winner");
+        rule.put("triple_carry_any_two", true);
         rule.put("bomb_double", true);
         rule.put("spring_double", true);
         rule.put("auto_play_timeout", 30000);
@@ -2155,8 +2157,13 @@ public class GameServiceImpl implements IGameService {
                     continue;
                 Map<String, Object> item = new HashMap<>();
                 item.put("venueId", venueId);
+                item.put("districtId", districtId);
+                item.put("gameType", venueEntity.getGameType());
+                item.put("number", getDistrictVenueNumber(venueEntity));
                 item.put("playerCount", playerCount);
                 item.put("maxPlayerNums", maxPlayerNum);
+                item.put("baseScore", resolveDistrictBaseScore(districtId));
+                item.put("roundCount", resolveDistrictRoundCount(districtId));
                 venues.add(item);
             }
         }
@@ -2167,6 +2174,50 @@ public class GameServiceImpl implements IGameService {
         result.put("items", venues);
         result.put("maxPlayerNums", maxPlayerNum);
         return result;
+    }
+
+    private String getDistrictVenueNumber(Venue venue) {
+        if (venue == null || StringUtils.isEmpty(venue.getId()) || venue.getGameType() == null)
+            return null;
+        Integer gameType = venue.getGameType();
+        String venueId = venue.getId();
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU))
+            return this.doudizhuMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG))
+            return this.taojiangMahjongMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG))
+            return this.hongzhongMahjongMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG))
+            return this.changshaMahjongMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI))
+            return this.paodekuaiMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI))
+            return this.yiyangWaihuziMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN))
+            return this.yuanjiangQianfenMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN))
+            return this.guanDanMapper.getNumber(venueId);
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_LACKEY))
+            return this.lackeyMapper.getNumber(venueId);
+        return venueId;
+    }
+
+    private int resolveDistrictBaseScore(Integer districtId) {
+        if (districtId == null) return 0;
+        if (isTaojiangDistrict(districtId)) return resolveTaojiangBaseScore(districtId);
+        if (isHongzhongDistrict(districtId)) return resolveHongzhongBaseScore(districtId);
+        if (isChangshaDistrict(districtId)) return resolveChangshaBaseScore(districtId);
+        if (isPaodekuaiDistrict(districtId)) return resolvePaodekuaiBaseScore(districtId);
+        if (isWaihuziDistrict(districtId)) return resolveWaihuziBaseScore(districtId);
+        if (isQianfenDistrict(districtId)) return resolveQianfenBaseScore(districtId);
+        if (isDoudizhuDistrict(districtId)) return resolveDoudizhuBaseScore(districtId);
+        return 0;
+    }
+
+    private int resolveDistrictRoundCount(Integer districtId) {
+        if (districtId == null) return 0;
+        if (isTaojiangDistrict(districtId)) return resolveTaojiangRoundCount(districtId);
+        return 8;
     }
 
     @Override

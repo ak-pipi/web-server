@@ -47,8 +47,9 @@ import java.util.concurrent.locks.ReentrantLock;
 @Service
 @Slf4j
 public class GameServiceImpl implements IGameService {
-    private static final int DOUDIZHU_HAND_CARD_COUNT = 20;
+    private static final int DOUDIZHU_HAND_CARD_COUNT = 17;
     private static final int DOUDIZHU_BOTTOM_CARD_COUNT = 3;
+    private static final int DOUDIZHU_AUTO_PLAY_TIMEOUT = 180000;
 
     /**
      * 用于Java内部数据类型的缓存
@@ -594,7 +595,8 @@ public class GameServiceImpl implements IGameService {
 
         int roundCount = normalizeHongzhongRoundCount(raw.getInteger("round_count"));
         int baseScore = normalizeHongzhongBaseScore(raw.getInteger("base_score"));
-        fillHongzhongRuleDefaults(rule, baseScore, roundCount);
+        int playerCount = normalizeHongzhongPlayerCount(raw.getInteger("player_count"));
+        fillHongzhongRuleDefaults(rule, baseScore, roundCount, playerCount);
         return rule.toJSONString();
     }
 
@@ -612,6 +614,10 @@ public class GameServiceImpl implements IGameService {
         return validScores[0];
     }
 
+    private int normalizeHongzhongPlayerCount(Integer playerCount) {
+        return 2;
+    }
+
     private int resolveHongzhongRoomFee(int baseScore) {
         if (baseScore == 1 || baseScore == 2) return 2;
         if (baseScore == 3) return 3;
@@ -621,10 +627,11 @@ public class GameServiceImpl implements IGameService {
         return 2;
     }
 
-    private void fillHongzhongRuleDefaults(JSONObject rule, int baseScore, int roundCount) {
+    private void fillHongzhongRuleDefaults(JSONObject rule, int baseScore, int roundCount, int playerCount) {
         int roomFee = resolveHongzhongRoomFee(baseScore);
         rule.put("base_score", baseScore);
         rule.put("round_count", roundCount);
+        rule.put("player_count", playerCount);
         rule.put("max_score", 0);
         rule.put("room_fee_type", roomFee);
         rule.put("room_fee", roomFee);
@@ -703,7 +710,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("triple_carry_any_two", true);
         rule.put("bomb_double", true);
         rule.put("spring_double", true);
-        rule.put("auto_play_timeout", 30000);
+        rule.put("auto_play_timeout", 180000);
         rule.put("deck_rule", "remove_jokers_3x2_3xA_1xK");
     }
 
@@ -1026,6 +1033,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("remove_three_and_four", false);
         rule.put("hand_card_count", DOUDIZHU_HAND_CARD_COUNT);
         rule.put("bottom_card_count", DOUDIZHU_BOTTOM_CARD_COUNT);
+        rule.put("auto_play_timeout", DOUDIZHU_AUTO_PLAY_TIMEOUT);
         return rule.toJSONString();
     }
 
@@ -1938,7 +1946,7 @@ public class GameServiceImpl implements IGameService {
     private String buildHongzhongDistrictRuleConfig(int baseScore, int roundCount) {
         JSONObject rule = new JSONObject();
         rule.put("level", 3);
-        fillHongzhongRuleDefaults(rule, baseScore, roundCount);
+        fillHongzhongRuleDefaults(rule, baseScore, roundCount, 2);
         return rule.toJSONString();
     }
 
@@ -1952,6 +1960,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("remove_three_and_four", false);
         rule.put("hand_card_count", DOUDIZHU_HAND_CARD_COUNT);
         rule.put("bottom_card_count", DOUDIZHU_BOTTOM_CARD_COUNT);
+        rule.put("auto_play_timeout", DOUDIZHU_AUTO_PLAY_TIMEOUT);
         return rule.toJSONString();
     }
 

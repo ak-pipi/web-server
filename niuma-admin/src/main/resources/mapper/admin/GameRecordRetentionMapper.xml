@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.niuma.admin.mapper.GameRecordRetentionMapper">
+
+    <delete id="deleteExpiredGameReplaysByRound">
+        delete `t1`
+        from `game_replay` `t1`
+        inner join `game_round` `t2` on `t1`.`round_id` = `t2`.`id`
+        where coalesce(`t2`.`settled_at`, `t2`.`create_time`) <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredGameReplays">
+        delete from `game_replay`
+        where `create_time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredGameRounds">
+        delete from `game_round`
+        where coalesce(`settled_at`, `create_time`) <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredMahjongRecords">
+        delete from `game_mahjong_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredTaojiangMahjongRecords">
+        delete from `game_taojiang_mahjong_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredHongzhongMahjongRecords">
+        delete from `game_hongzhong_mahjong_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredPaodekuaiRecords">
+        delete from `game_paodekuai_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredChangshaMahjongRecords">
+        delete from `game_changsha_mahjong_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredYiyangWaihuziRecords">
+        delete from `game_yiyang_waihuzi_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredYuanjiangQianfenRecords">
+        delete from `game_yuanjiang_qianfen_record`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredLackeyRoundPlayers">
+        delete `t1`
+        from `game_lackey_round_player` `t1`
+        inner join `game_lackey_round` `t2` on `t1`.`round_id` = `t2`.`id`
+        where `t2`.`time` <![CDATA[<]]> #{cutoff}
+    </delete>
+
+    <delete id="deleteExpiredLackeyRounds">
+        delete from `game_lackey_round`
+        where `time` <![CDATA[<]]> #{cutoff}
+    </delete>
+</mapper>

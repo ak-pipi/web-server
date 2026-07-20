@@ -58,6 +58,31 @@ public class MahjongPlaybackDTO {
     private String base64;
 
     /**
+     * 是否存在可追溯回放
+     */
+    private Boolean hasReplay;
+
+    /**
+     * 回放保留天数
+     */
+    private Integer retentionDays;
+
+    /**
+     * 回放过期时间
+     */
+    private String expireTime;
+
+    /**
+     * 回放序列化格式
+     */
+    private String format;
+
+    /**
+     * 回放编码/压缩方式
+     */
+    private String codec;
+
+    /**
      * 结算时间
      */
     private String time;

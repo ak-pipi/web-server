@@ -5,6 +5,7 @@ import com.niuma.admin.dto.JuniorPlayerDTO;
 import com.niuma.admin.dto.PlayerIdDTO;
 import com.niuma.admin.dto.RewardDTO;
 import com.niuma.admin.service.IAgencyService;
+import com.niuma.admin.service.IAgencyManageService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.page.PageBody;
 import com.niuma.common.page.PageResult;
@@ -24,6 +25,9 @@ public class AgencyController {
     @Autowired
     private IAgencyService agencyService;
 
+    @Autowired
+    private IAgencyManageService agencyManageService;
+
     /**
      * 绑定代理玩家
      * @param dto 请求体
@@ -31,6 +35,22 @@ public class AgencyController {
     @PostMapping("/bind")
     public AjaxResult bindAgency(@RequestBody @Validated PlayerIdDTO dto) {
         return this.agencyService.bindAgency(dto.getPlayerId());
+    }
+
+    /**
+     * 通过邀请码绑定代理玩家
+     */
+    @PostMapping("/bind-code")
+    public AjaxResult bindAgencyByInviteCode(@RequestBody @Validated com.niuma.admin.dto.AgencyBindByCodeDTO dto) {
+        return this.agencyManageService.bindCurrentPlayerByInviteCode(dto.getInviteCode());
+    }
+
+    /**
+     * 获取当前代理的邀请码
+     */
+    @GetMapping("/invite-code")
+    public AjaxResult getInviteCode() {
+        return this.agencyManageService.getCurrentAgentInviteCode();
     }
 
     /**

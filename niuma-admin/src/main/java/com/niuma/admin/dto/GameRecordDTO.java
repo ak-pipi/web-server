@@ -5,11 +5,13 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * 桃江麻将游戏记录数据传输对象
+ * 地区游戏对局记录数据传输对象。
  */
 @Data
-public class TaojiangMahjongRecordDTO {
+public class GameRecordDTO {
     private Long id;
+    private Integer gameType;
+    private String gameName;
     private String venueId;
     private String number;
     private Integer roundNo;

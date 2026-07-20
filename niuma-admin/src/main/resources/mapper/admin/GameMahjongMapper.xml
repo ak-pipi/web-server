@@ -18,8 +18,9 @@
     </select>
 
     <select id="countRecord" resultType="Integer">
-        select count(*) from `game_mahjong_record` where
-        `player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId}
+        select count(*) from `game_mahjong_record`
+        where `time` <![CDATA[>=]]> #{cutoff}
+          and (`player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId})
     </select>
 
     <resultMap id="MahjongRecordMap" type="com.niuma.admin.entity.MahjongRecord">
@@ -45,7 +46,8 @@
         select `id`, `venue_id`, `round_no`, `player_id0`, `player_id1`, `player_id2`, `player_id3`, `banker`,
             `score0`, `score1`, `score2`, `score3`, `win_gold0`, `win_gold1`, `win_gold2`, `win_gold3`, `time`
         from `game_mahjong_record`
-        where `player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId}
+        where `time` <![CDATA[>=]]> #{cutoff}
+          and (`player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId})
         order by `id` desc
         limit #{offset}, #{pageSize}
     </select>

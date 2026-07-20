@@ -160,11 +160,47 @@ public interface IGameService {
      * 查询桃江麻将游戏记录
      * @param dto 请求体
      */
-    PageResult<TaojiangMahjongRecordDTO> getTaojiangMahjongRecord(PageBody dto);
+    PageResult<GameRecordDTO> getTaojiangMahjongRecord(PageBody dto);
 
     /**
      * 查询桃江麻将游戏回放
      * @param id 游戏记录id
      */
     AjaxResult getTaojiangMahjongPlayback(Long id);
+
+    /**
+     * 查询红中麻将游戏记录
+     * @param dto 请求体
+     */
+    PageResult<GameRecordDTO> getHongzhongMahjongRecord(PageBody dto);
+
+    /**
+     * 查询红中麻将游戏回放
+     * @param id 游戏记录id
+     */
+    AjaxResult getHongzhongMahjongPlayback(Long id);
+
+    /**
+     * 查询跑得快游戏记录
+     * @param dto 请求体
+     */
+    PageResult<GameRecordDTO> getPaodekuaiRecord(PageBody dto);
+
+    /**
+     * 查询跑得快游戏回放
+     * @param id 游戏记录id
+     */
+    AjaxResult getPaodekuaiPlayback(Long id);
+
+    /**
+     * 查询长沙麻将游戏记录
+     * @param dto 请求体
+     */
+    PageResult<GameRecordDTO> getChangshaMahjongRecord(PageBody dto);
+
+    /**
+     * 查询长沙麻将游戏回放
+     * @param id 游戏记录id
+     */
+    AjaxResult getChangshaMahjongPlayback(Long id);
 }

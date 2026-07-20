@@ -9,6 +9,7 @@ import com.niuma.admin.dto.RoomQueryDTO;
 import com.niuma.admin.data.MqMessage;
 import com.niuma.admin.entity.*;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.service.IGameRecordRetentionService;
 import com.niuma.admin.rabbit.RabbitSender;
 import com.niuma.admin.service.IRoomManageService;
 import com.niuma.common.core.domain.AjaxResult;
@@ -58,6 +59,9 @@ public class RoomManageServiceImpl implements IRoomManageService {
 
     @Autowired
     private RabbitSender rabbitSender;
+
+    @Autowired
+    private IGameRecordRetentionService gameRecordRetentionService;
 
     // ==================== 创建房间 ====================
 
@@ -155,6 +159,7 @@ public class RoomManageServiceImpl implements IRoomManageService {
         // 查询该房间的牌局记录
         LambdaQueryWrapper<GameRound> roundWrapper = Wrappers.lambdaQuery(GameRound.class)
                 .eq(GameRound::getRoomId, roomId)
+                .ge(GameRound::getSettledAt, LocalDateTime.now().minusDays(gameRecordRetentionService.getRetentionDays()))
                 .orderByAsc(GameRound::getRoundNo);
         List<GameRound> rounds = gameRoundMapper.selectList(roundWrapper);
         result.put("rounds", rounds);

@@ -11,6 +11,7 @@ import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.*;
 import com.niuma.admin.mapper.*;
 import com.niuma.admin.rabbit.RabbitSender;
+import com.niuma.admin.service.IGameRecordRetentionService;
 import com.niuma.admin.service.IGameService;
 import com.niuma.admin.utils.JsonUtils;
 import com.niuma.common.constant.ResultCodeEnum;
@@ -50,6 +51,7 @@ public class GameServiceImpl implements IGameService {
     private static final int DOUDIZHU_HAND_CARD_COUNT = 17;
     private static final int DOUDIZHU_BOTTOM_CARD_COUNT = 3;
     private static final int DOUDIZHU_AUTO_PLAY_TIMEOUT = 180000;
+    private static final long MIN_CARRY_SCORE_MULTIPLIER = 8L;
 
     /**
      * 用于Java内部数据类型的缓存
@@ -124,6 +126,9 @@ public class GameServiceImpl implements IGameService {
     private GameTaojiangMahjongRecordMapper taojiangMahjongRecordMapper;
 
     @Resource
+    private GameRegionalRecordMapper gameRegionalRecordMapper;
+
+    @Resource
     private GameFaultMapper gameFaultMapper;
 
     @Resource
@@ -131,6 +136,9 @@ public class GameServiceImpl implements IGameService {
 
     @Resource
     private DistrictMapper districtMapper;
+
+    @Resource
+    private IGameRecordRetentionService gameRecordRetentionService;
 
     // 异步命令映射表
     private Map<String, MqCommandDeferred> commandDeferredMap = new HashMap<>();
@@ -144,6 +152,31 @@ public class GameServiceImpl implements IGameService {
     @FunctionalInterface
     private interface BeforeEnterCallback {
         void invoke(String playerId, String venueId);
+    }
+
+    @FunctionalInterface
+    private interface RegionalRecordCounter {
+        Integer count(String playerId, LocalDateTime cutoff);
+    }
+
+    @FunctionalInterface
+    private interface RegionalRecordPager {
+        List<GameRegionalRecord> get(String playerId, LocalDateTime cutoff, Integer offset, Integer pageSize);
+    }
+
+    @FunctionalInterface
+    private interface RegionalRecordGetter {
+        GameRegionalRecord get(Long id);
+    }
+
+    @FunctionalInterface
+    private interface RegionalPlaybackGetter {
+        String get(Long id);
+    }
+
+    @FunctionalInterface
+    private interface RegionalNumberGetter {
+        String get(String venueId);
     }
 
     /**
@@ -199,6 +232,8 @@ public class GameServiceImpl implements IGameService {
             // 可以直接创建或者进入指定场地
             if (callback != null)
                 callback.invoke(playerId, venueId);
+        } catch (HttpException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), ex.getMessage());
         } finally {
@@ -582,6 +617,126 @@ public class GameServiceImpl implements IGameService {
     }
 
     /**
+     * 长沙麻将规则统一归一化，服务端与客户端按同一组配置字段工作。
+     */
+    private String resolveChangshaRuleConfig(String json) {
+        JSONObject raw = StringUtils.isEmpty(json) ? null : JSONObject.parseObject(json);
+        if (raw == null)
+            raw = new JSONObject();
+        JSONObject rule = new JSONObject();
+        Integer level = raw.getInteger("level");
+        if (level != null)
+            rule.put("level", level);
+
+        int roundCount = normalizeChangshaRoundCount(raw.getInteger("round_count"));
+        int baseScore = normalizeChangshaBaseScore(raw.getInteger("base_score"));
+        fillChangshaRuleDefaults(rule, baseScore, roundCount);
+
+        Integer maxScore = raw.getInteger("max_score");
+        if (maxScore != null && maxScore >= 0)
+            rule.put("max_score", maxScore);
+        Integer roomFeeType = raw.getInteger("room_fee_type");
+        if (roomFeeType != null && roomFeeType >= 0)
+            rule.put("room_fee_type", roomFeeType);
+        Integer maxFan = raw.getInteger("max_fan");
+        if (maxFan != null)
+            rule.put("max_fan", normalizeChangshaMaxFan(maxFan));
+        Integer birdCount = raw.getInteger("bird_count");
+        if (birdCount != null)
+            rule.put("bird_count", normalizeChangshaBirdCount(birdCount));
+
+        copyBooleanRuleOption(raw, rule, "allow_chi");
+        copyBooleanRuleOption(raw, rule, "allow_peng");
+        copyBooleanRuleOption(raw, rule, "allow_gang");
+        copyBooleanRuleOption(raw, rule, "allow_zimo");
+        copyBooleanRuleOption(raw, rule, "allow_dianpao");
+        copyBooleanRuleOption(raw, rule, "dissolve_vote");
+        copyBooleanRuleOption(raw, rule, "require_258_jiang");
+        copyBooleanRuleOption(raw, rule, "queyise_enabled");
+        copyBooleanRuleOption(raw, rule, "banbanhu_enabled");
+        copyBooleanRuleOption(raw, rule, "dasixi_enabled");
+        copyBooleanRuleOption(raw, rule, "liuliushun_enabled");
+        copyBooleanRuleOption(raw, rule, "jiejiegao_enabled");
+        copyBooleanRuleOption(raw, rule, "santong_enabled");
+        copyBooleanRuleOption(raw, rule, "yizhihua_enabled");
+        copyBooleanRuleOption(raw, rule, "zhongniao_enabled");
+        copyBooleanRuleOption(raw, rule, "bird_double");
+        copyBooleanRuleOption(raw, rule, "bird_cap_max");
+        return rule.toJSONString();
+    }
+
+    private int normalizeChangshaRoundCount(Integer roundCount) {
+        return (roundCount != null && roundCount == 1) ? 1 : 8;
+    }
+
+    private int normalizeChangshaBaseScore(Integer baseScore) {
+        int score = baseScore == null ? 0 : baseScore;
+        int[] validScores = new int[] {1, 2, 5, 10};
+        for (int validScore : validScores) {
+            if (score == validScore)
+                return score;
+        }
+        return validScores[0];
+    }
+
+    private int normalizeChangshaMaxFan(Integer maxFan) {
+        int fan = maxFan == null ? 0 : maxFan;
+        return fan > 0 ? Math.min(fan, 16) : 8;
+    }
+
+    private int normalizeChangshaBirdCount(Integer birdCount) {
+        int count = birdCount == null ? 0 : birdCount;
+        if (count == 0 || count == 1 || count == 2 || count == 4 || count == 6)
+            return count;
+        return 2;
+    }
+
+    private int resolveChangshaRoomFee(int baseScore) {
+        if (baseScore == 1 || baseScore == 2) return 2;
+        if (baseScore == 5) return 4;
+        if (baseScore == 10) return 6;
+        return 2;
+    }
+
+    private void fillChangshaRuleDefaults(JSONObject rule, int baseScore, int roundCount) {
+        int roomFee = resolveChangshaRoomFee(baseScore);
+        rule.put("base_score", baseScore);
+        rule.put("di_zhu", baseScore);
+        rule.put("round_count", roundCount);
+        rule.put("player_count", 4);
+        rule.put("max_score", 300);
+        rule.put("room_fee_type", roomFee);
+        rule.put("room_fee", roomFee);
+        rule.put("allow_chi", true);
+        rule.put("allow_peng", true);
+        rule.put("allow_gang", true);
+        rule.put("allow_zimo", true);
+        rule.put("allow_dianpao", true);
+        rule.put("dissolve_vote", true);
+        rule.put("banker_rule", 0);
+        rule.put("max_fan", 8);
+        rule.put("require_258_jiang", true);
+        rule.put("queyise_enabled", true);
+        rule.put("banbanhu_enabled", true);
+        rule.put("dasixi_enabled", true);
+        rule.put("liuliushun_enabled", true);
+        rule.put("jiejiegao_enabled", true);
+        rule.put("santong_enabled", true);
+        rule.put("yizhihua_enabled", true);
+        rule.put("zhongniao_enabled", true);
+        rule.put("bird_count", 2);
+        rule.put("bird_double", true);
+        rule.put("bird_cap_max", true);
+        rule.put("tile_count", 108);
+    }
+
+    private void copyBooleanRuleOption(JSONObject raw, JSONObject rule, String key) {
+        Boolean value = raw.getBoolean(key);
+        if (value != null)
+            rule.put(key, value);
+    }
+
+    /**
      * 红中麻将规则统一归一化，避免客户端旧参数绕过游戏服固定玩法。
      */
     private String resolveHongzhongRuleConfig(String json) {
@@ -714,14 +869,206 @@ public class GameServiceImpl implements IGameService {
         rule.put("deck_rule", "remove_jokers_3x2_3xA_1xK");
     }
 
-    public String createGame(Integer gameType, String playerId, String base64) {
-        String json = null;
-        if (StringUtils.isNotEmpty(base64)) {
-            java.util.Base64.Decoder decoder = java.util.Base64.getDecoder();
-            byte[] buf = decoder.decode(base64);
-            if (buf != null)
-                json = new String(buf);
+    private String decodeRuleConfigBase64(String base64) {
+        if (StringUtils.isEmpty(base64))
+            return null;
+        try {
+            byte[] buf = java.util.Base64.getDecoder().decode(base64);
+            return buf == null ? null : new String(buf, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "创建房间规则参数格式错误");
         }
+    }
+
+    private JSONObject parseRuleJson(String json) {
+        if (StringUtils.isEmpty(json))
+            return new JSONObject();
+        try {
+            JSONObject obj = JSONObject.parseObject(json);
+            return obj == null ? new JSONObject() : obj;
+        } catch (Exception ex) {
+            return new JSONObject();
+        }
+    }
+
+    private int resolvePositiveBaseScore(JSONObject rule) {
+        Integer baseScore = rule.getInteger("base_score");
+        if (baseScore == null)
+            baseScore = rule.getInteger("di_zhu");
+        return baseScore != null && baseScore > 0 ? baseScore : 1;
+    }
+
+    private long resolveMinCarryScoreByBaseScore(int baseScore) {
+        return baseScore > 0 ? baseScore * MIN_CARRY_SCORE_MULTIPLIER : 0L;
+    }
+
+    private long resolveMinCarryScoreForCreate(Integer gameType, String json) {
+        if (gameType == null)
+            return 0L;
+        JSONObject rule = parseRuleJson(json);
+        int baseScore = 0;
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            int roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizeTaojiangBaseScore(rule.getInteger("base_score"), roundCount);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"));
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"));
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"));
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
+            baseScore = resolvePositiveBaseScore(rule);
+        }
+        return resolveMinCarryScoreByBaseScore(baseScore);
+    }
+
+    private long resolveMinCarryScoreForRuleConfig(Integer gameType, String ruleConfig) {
+        if (gameType == null)
+            return 0L;
+        JSONObject rule = parseRuleJson(ruleConfig);
+        int baseScore = 0;
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            int roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizeTaojiangBaseScore(rule.getInteger("base_score"), roundCount);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"));
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"));
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"));
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
+            baseScore = resolvePositiveBaseScore(rule);
+        }
+        return resolveMinCarryScoreByBaseScore(baseScore);
+    }
+
+    private String getRuleConfigForVenue(Integer gameType, String venueId) {
+        if (gameType == null || StringUtils.isEmpty(venueId))
+            return null;
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            LambdaQueryWrapper<GameTaojiangMahjong> query = Wrappers.lambdaQuery();
+            query.eq(GameTaojiangMahjong::getVenueId, venueId);
+            GameTaojiangMahjong entity = this.taojiangMahjongMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            LambdaQueryWrapper<GameHongzhongMahjong> query = Wrappers.lambdaQuery();
+            query.eq(GameHongzhongMahjong::getVenueId, venueId);
+            GameHongzhongMahjong entity = this.hongzhongMahjongMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            LambdaQueryWrapper<GameChangshaMahjong> query = Wrappers.lambdaQuery();
+            query.eq(GameChangshaMahjong::getVenueId, venueId);
+            GameChangshaMahjong entity = this.changshaMahjongMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            LambdaQueryWrapper<GamePaodekuai> query = Wrappers.lambdaQuery();
+            query.eq(GamePaodekuai::getVenueId, venueId);
+            GamePaodekuai entity = this.paodekuaiMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU)) {
+            LambdaQueryWrapper<GameDoudizhu> query = Wrappers.lambdaQuery();
+            query.eq(GameDoudizhu::getVenueId, venueId);
+            GameDoudizhu entity = this.doudizhuMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI)) {
+            LambdaQueryWrapper<GameYiyangWaihuzi> query = Wrappers.lambdaQuery();
+            query.eq(GameYiyangWaihuzi::getVenueId, venueId);
+            GameYiyangWaihuzi entity = this.yiyangWaihuziMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
+            LambdaQueryWrapper<GameYuanjiangQianfen> query = Wrappers.lambdaQuery();
+            query.eq(GameYuanjiangQianfen::getVenueId, venueId);
+            GameYuanjiangQianfen entity = this.yuanjiangQianfenMapper.selectOne(query);
+            return entity == null ? null : entity.getRuleConfig();
+        }
+        return null;
+    }
+
+    private long resolveMinCarryScoreForVenue(Venue venue) {
+        if (venue == null)
+            return 0L;
+        Integer districtId = venue.getDistrictId();
+        if (districtId != null && districtId > 0)
+            return resolveMinCarryScoreForDistrict(districtId, null);
+        return resolveMinCarryScoreForRuleConfig(venue.getGameType(), getRuleConfigForVenue(venue.getGameType(), venue.getId()));
+    }
+
+    private long resolveMinCarryScoreForDistrict(Integer districtId, District district) {
+        int baseScore = resolveDistrictBaseScore(districtId);
+        if (baseScore > 0)
+            return resolveMinCarryScoreByBaseScore(baseScore);
+        Long goldNeed = district == null ? null : district.getGoldNeed();
+        if (goldNeed == null && districtId != null) {
+            District entity = this.districtMapper.selectById(districtId);
+            if (entity != null)
+                goldNeed = entity.getGoldNeed();
+        }
+        return goldNeed != null && goldNeed > 0L ? goldNeed : 0L;
+    }
+
+    private boolean isPlayerInVenue(String playerId, String venueId) {
+        if (StringUtils.isEmpty(playerId) || StringUtils.isEmpty(venueId))
+            return false;
+        String venueKey = NiuMaRedisKeys.PLAYER_CURRENT_VENUE + playerId;
+        String currentVenue = this.redisPrimitive.get(venueKey);
+        return venueId.equals(currentVenue);
+    }
+
+    private boolean isPlayerInDistrict(String playerId, Integer districtId) {
+        if (StringUtils.isEmpty(playerId) || districtId == null)
+            return false;
+        String venueKey = NiuMaRedisKeys.PLAYER_CURRENT_VENUE + playerId;
+        String currentVenue = this.redisPrimitive.get(venueKey);
+        if (StringUtils.isEmpty(currentVenue))
+            return false;
+        Integer currentDistrictId = this.venueMapper.getDistrictId(currentVenue);
+        return districtId.equals(currentDistrictId);
+    }
+
+    private void assertEnoughCarryScore(String playerId, long minCarryScore) {
+        if (minCarryScore <= 0L)
+            return;
+        Long gold = this.capitalMapper.getGold(playerId);
+        if (gold == null)
+            gold = 0L;
+        if (gold < minCarryScore) {
+            String msg = "携带积分不足，最低需要" + minCarryScore + "积分，保险柜积分不参与游戏结算，请先从保险柜取出积分";
+            throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
+        }
+    }
+
+    private void assertEnoughCarryScoreForCreate(String playerId, Integer gameType, String json) {
+        assertEnoughCarryScore(playerId, resolveMinCarryScoreForCreate(gameType, json));
+    }
+
+    private void assertEnoughCarryScoreForVenue(String playerId, Venue venue) {
+        if (venue == null || isPlayerInVenue(playerId, venue.getId()))
+            return;
+        assertEnoughCarryScore(playerId, resolveMinCarryScoreForVenue(venue));
+    }
+
+    private void assertEnoughCarryScoreForDistrict(String playerId, Integer districtId, District district) {
+        if (isPlayerInDistrict(playerId, districtId))
+            return;
+        assertEnoughCarryScore(playerId, resolveMinCarryScoreForDistrict(districtId, district));
+    }
+
+    private void responseHttpException(DeferredResult<ResponseEntity<AjaxResult> > result, HttpException ex) {
+        AjaxResult ajax = new AjaxResult();
+        if (StringUtils.isNotEmpty(ex.getCode()))
+            ajax.put(AjaxResult.CODE_TAG, ex.getCode());
+        if (StringUtils.isNotEmpty(ex.getMessage()))
+            ajax.put(AjaxResult.MSG_TAG, ex.getMessage());
+        result.setResult(new ResponseEntity<>(ajax, ex.getStatus()));
+    }
+
+    public String createGame(Integer gameType, String playerId, String base64) {
+        String json = decodeRuleConfigBase64(base64);
+        assertEnoughCarryScoreForCreate(playerId, gameType, json);
         GameMahjong mahjong = null;
         GameBiJi biJi = null;
         GameLackey lackey = null;
@@ -1189,7 +1536,7 @@ public class GameServiceImpl implements IGameService {
         GameChangshaMahjong entity = new GameChangshaMahjong();
         entity.setNumber(number);
         entity.setLevel(level);
-        entity.setRuleConfig(resolveRuleConfig(json));
+        entity.setRuleConfig(resolveChangshaRuleConfig(json));
         return entity;
     }
 
@@ -1295,12 +1642,7 @@ public class GameServiceImpl implements IGameService {
                 actionDeferred.setResult(result);
             }
         } catch (HttpException ex) {
-            AjaxResult ajax = new AjaxResult();
-            if (StringUtils.isNotEmpty(ex.getCode()))
-                ajax.put(AjaxResult.CODE_TAG, ex.getCode());
-            if (StringUtils.isNotEmpty(ex.getMessage()))
-                ajax.put(AjaxResult.MSG_TAG, ex.getMessage());
-            result.setResult(new ResponseEntity<>(ajax, ex.getStatus()));
+            responseHttpException(result, ex);
         }
     }
 
@@ -1444,6 +1786,7 @@ public class GameServiceImpl implements IGameService {
             if (!entity.getStatus().equals(0))
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_STATUS_ERROR);
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, dto.getVenueId(), (playerIdIn, venueIdIn) -> {
+                assertEnoughCarryScoreForVenue(playerIdIn, entity);
                 // 响应进入指定场地
                 responseEnterVenue(result, playerIdIn, venueIdIn);
             });
@@ -1456,12 +1799,7 @@ public class GameServiceImpl implements IGameService {
                 actionDeferred.setResult(result);
             }
         } catch (HttpException ex) {
-            AjaxResult ajax = new AjaxResult();
-            if (StringUtils.isNotEmpty(ex.getCode()))
-                ajax.put(AjaxResult.CODE_TAG, ex.getCode());
-            if (StringUtils.isNotEmpty(ex.getMessage()))
-                ajax.put(AjaxResult.MSG_TAG, ex.getMessage());
-            result.setResult(new ResponseEntity<>(ajax, ex.getStatus()));
+            responseHttpException(result, ex);
         }
     }
 
@@ -1545,6 +1883,8 @@ public class GameServiceImpl implements IGameService {
     private void responseEnterDistrict(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId) {
         try {
             this.responseEnterDistrictImpl(result, playerId, districtId);
+        } catch (HttpException ex) {
+            responseHttpException(result, ex);
         } catch (Exception ex) {
             log.error("Response enter district error: {}", ex.getMessage());
             AjaxResult ajax = AjaxResult.error(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), ex.getMessage());
@@ -1554,7 +1894,7 @@ public class GameServiceImpl implements IGameService {
 
     private void responseEnterDistrictImpl(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId) {
         /**
-         * 分配场地策略：
+     * 分配场地策略：
          * a、从Redis中获取指定区域(districtId)的未满场地列表NFL，并按玩家人数从多到少排列，划分NFL中玩家数量大于的前部分为NFL1，玩家数量为0的后部分为NFL2
          * b、从Redis中获取当前玩家5分钟内进入过的场地轨迹记录表TM(超过5分钟的轨迹点删除)
          * c、从头到尾遍历NFL1中的每个场地，以便获得一个授权场地AV：
@@ -1568,6 +1908,10 @@ public class GameServiceImpl implements IGameService {
          * f、从NFL2中获取第一个场地作为授权场地AV
          * g、退出函数并响应返回AV所在的服务器地址
          */
+        District district = this.districtMapper.selectById(districtId);
+        if (district == null)
+            throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        assertEnoughCarryScoreForDistrict(playerId, districtId, district);
         String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
         Map<String, String> notFullMap = this.redisPrimitive.getMap(notFullKey);
         List<String> notFullVenues = null;
@@ -1838,7 +2182,7 @@ public class GameServiceImpl implements IGameService {
             entity.setNumber(number);
             entity.setVenueId(venueId);
             entity.setLevel(GuanDanLevel.Beginner.ordinal());
-            entity.setRuleConfig(buildDistrictRuleConfig(resolveChangshaBaseScore(districtId), 8));
+            entity.setRuleConfig(buildChangshaDistrictRuleConfig(resolveChangshaBaseScore(districtId), 8));
             this.changshaMahjongMapper.insert(entity);
         }
         // 跑得快 districts (25-28)
@@ -1950,6 +2294,14 @@ public class GameServiceImpl implements IGameService {
         return rule.toJSONString();
     }
 
+    /** 构造长沙麻将 district 场地的 ruleConfig JSON */
+    private String buildChangshaDistrictRuleConfig(int baseScore, int roundCount) {
+        JSONObject rule = new JSONObject();
+        rule.put("level", 3);
+        fillChangshaRuleDefaults(rule, baseScore, roundCount);
+        return rule.toJSONString();
+    }
+
     private String buildDoudizhuDistrictRuleConfig(int baseScore, int roundCount) {
         JSONObject rule = new JSONObject();
         rule.put("level", 3);
@@ -2035,23 +2387,14 @@ public class GameServiceImpl implements IGameService {
             result.setResult(new ResponseEntity<>(ajax, HttpStatus.NOT_FOUND));
             return;
         }
-        if (entity.getGoldNeed() > 0L) {
-            Long gold = this.capitalMapper.getGold(player.getId());
-            if ((gold == null) || (gold < entity.getGoldNeed())) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("金币不足，最低需要");
-                sb.append(entity.getGoldNeed());
-                sb.append("金币");
-                throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), sb.toString());
-            }
-        }
-        if (entity.getDiamondNeed() > 0L) {
+        Long diamondNeed = entity.getDiamondNeed();
+        if (diamondNeed != null && diamondNeed > 0L) {
             // 扣钻模式
             Long diamond = this.capitalMapper.getDiamond(player.getId());
-            if ((diamond == null) || (diamond < entity.getDiamondNeed())) {
+            if ((diamond == null) || (diamond < diamondNeed)) {
                 StringBuilder sb = new StringBuilder();
                 sb.append("钻石不足，最低需要");
-                sb.append(entity.getDiamondNeed());
+                sb.append(diamondNeed);
                 sb.append("枚钻石");
                 throw new ForbiddenException(NiuMaCodeEnum.DIAMOND_INSUFFICIENT_ERROR.getCode(), sb.toString());
             }
@@ -2173,6 +2516,7 @@ public class GameServiceImpl implements IGameService {
                 item.put("maxPlayerNums", maxPlayerNum);
                 item.put("baseScore", resolveDistrictBaseScore(districtId));
                 item.put("roundCount", resolveDistrictRoundCount(districtId));
+                item.put("minCarryScore", resolveMinCarryScoreForDistrict(districtId, entity));
                 venues.add(item);
             }
         }
@@ -2297,8 +2641,16 @@ public class GameServiceImpl implements IGameService {
         } else if (action == NiuMaConstants.ACTION_ENTER_GAME) {
             String playerId = cmd.getPlayerId();
             String venueId = cmd.getVenueId();
-            // 响应进入指定场地
-            responseEnterVenue(deferredResult, playerId, venueId);
+            try {
+                Venue venue = this.venueMapper.selectById(venueId);
+                if (venue == null)
+                    throw new NotFoundException(NiuMaCodeEnum.VENUE_NOT_EXIST);
+                assertEnoughCarryScoreForVenue(playerId, venue);
+                // 响应进入指定场地
+                responseEnterVenue(deferredResult, playerId, venueId);
+            } catch (HttpException ex) {
+                responseHttpException(deferredResult, ex);
+            }
         } else if (action == NiuMaConstants.ACTION_ENTER_DISTRICT) {
             String playerId = cmd.getPlayerId();
             // 响应进入指定区域
@@ -2376,12 +2728,13 @@ public class GameServiceImpl implements IGameService {
         PageResult<MahjongRecordDTO> result = new PageResult<>();
         result.setCodeEnum(ResultCodeEnum.SUCCESS);
         result.setPageNum(dto.getPageNum());
-        Integer totalNum = this.mahjongMapper.countRecord(player.getId());
+        LocalDateTime cutoff = getRecordRetentionCutoff();
+        Integer totalNum = this.mahjongMapper.countRecord(player.getId(), cutoff);
         Integer offset = (dto.getPageNum() - 1) * dto.getPageSize();
         result.setTotal(totalNum);
         if (offset >= totalNum)
             return result;
-        List<MahjongRecord> records = this.mahjongMapper.getRecords(player.getId(), offset, dto.getPageSize());
+        List<MahjongRecord> records = this.mahjongMapper.getRecords(player.getId(), cutoff, offset, dto.getPageSize());
         if ((records == null) || records.isEmpty())
             return result;
         List<MahjongRecordDTO> dtos = new ArrayList<>();
@@ -2435,6 +2788,7 @@ public class GameServiceImpl implements IGameService {
             winGolds.add(record.getWinGold2());
             winGolds.add(record.getWinGold3());
             tmp.setWinGolds(winGolds);
+            fillRecordRetention(tmp, record.getTime());
             if (record.getTime() != null)
                 tmp.setTime(record.getTime().format(formatter));
             dtos.add(tmp);
@@ -2453,6 +2807,13 @@ public class GameServiceImpl implements IGameService {
         MahjongRecord record = this.mahjongMapper.getRecord(id);
         if (record == null)
             throw new NotFoundException(NiuMaCodeEnum.MAHJONG_RECORD_NOT_EXIST);
+        if (isRecordExpired(record.getTime())) {
+            AjaxResult ajax = AjaxResult.successEx();
+            ajax.put("hasReplay", false);
+            ajax.put("retentionDays", gameRecordRetentionService.getRetentionDays());
+            ajax.put("msg", "牌局记录已超过追溯期");
+            return ajax;
+        }
         LambdaQueryWrapper<GameMahjong> query = Wrappers.lambdaQuery();
         query.eq(GameMahjong::getVenueId, record.getVenueId());
         GameMahjong entity = this.mahjongMapper.selectOne(query);
@@ -2484,6 +2845,15 @@ public class GameServiceImpl implements IGameService {
         }
         dto.setPlayers(playerInfos);
         String playback = this.mahjongMapper.getPlayback(id);
+        if (StringUtils.isEmpty(playback)) {
+            dto.setHasReplay(false);
+        } else {
+            dto.setHasReplay(true);
+        }
+        dto.setRetentionDays(gameRecordRetentionService.getRetentionDays());
+        dto.setExpireTime(formatRecordExpireTime(record.getTime()));
+        dto.setFormat("msgpack");
+        dto.setCodec("zlib+base64");
         dto.setBase64(playback);
         if (record.getTime() != null) {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm");
@@ -2512,12 +2882,13 @@ public class GameServiceImpl implements IGameService {
         PageResult<LackeyRoundDTO> result = new PageResult<>();
         result.setCodeEnum(ResultCodeEnum.SUCCESS);
         result.setPageNum(dto.getPageNum());
-        Integer totalNum = this.lackeyMapper.countRound(player.getId());
+        LocalDateTime cutoff = getRecordRetentionCutoff();
+        Integer totalNum = this.lackeyMapper.countRound(player.getId(), cutoff);
         Integer offset = (dto.getPageNum() - 1) * dto.getPageSize();
         result.setTotal(totalNum);
         if (offset >= totalNum)
             return result;
-        List<Long> roundIds = this.lackeyMapper.getRoundIds(player.getId(), offset, dto.getPageSize());
+        List<Long> roundIds = this.lackeyMapper.getRoundIds(player.getId(), cutoff, offset, dto.getPageSize());
         if (roundIds == null || roundIds.isEmpty())
             return result;
         List<LackeyRoundDTO> records = new ArrayList<>(roundIds.size());
@@ -2702,7 +3073,76 @@ public class GameServiceImpl implements IGameService {
     }
 
     @Override
-    public PageResult<TaojiangMahjongRecordDTO> getTaojiangMahjongRecord(PageBody dto) {
+    public PageResult<GameRecordDTO> getTaojiangMahjongRecord(PageBody dto) {
+        return getRegionalGameRecord(dto, NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG, "桃江麻将", 4,
+                gameRegionalRecordMapper::countTaojiangMahjongRecord,
+                gameRegionalRecordMapper::getTaojiangMahjongRecords,
+                taojiangMahjongMapper::getNumber);
+    }
+
+    @Override
+    public AjaxResult getTaojiangMahjongPlayback(Long id) {
+        return getRegionalGamePlayback(id, NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG, "桃江麻将", 4,
+                gameRegionalRecordMapper::getTaojiangMahjongRecord,
+                gameRegionalRecordMapper::getTaojiangMahjongPlayback,
+                taojiangMahjongMapper::getNumber);
+    }
+
+    @Override
+    public PageResult<GameRecordDTO> getHongzhongMahjongRecord(PageBody dto) {
+        return getRegionalGameRecord(dto, NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG, "红中麻将", 4,
+                gameRegionalRecordMapper::countHongzhongMahjongRecord,
+                gameRegionalRecordMapper::getHongzhongMahjongRecords,
+                hongzhongMahjongMapper::getNumber);
+    }
+
+    @Override
+    public AjaxResult getHongzhongMahjongPlayback(Long id) {
+        return getRegionalGamePlayback(id, NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG, "红中麻将", 4,
+                gameRegionalRecordMapper::getHongzhongMahjongRecord,
+                gameRegionalRecordMapper::getHongzhongMahjongPlayback,
+                hongzhongMahjongMapper::getNumber);
+    }
+
+    @Override
+    public PageResult<GameRecordDTO> getPaodekuaiRecord(PageBody dto) {
+        return getRegionalGameRecord(dto, NiuMaConstants.GAME_TYPE_PAO_DE_KUAI, "跑得快", 2,
+                gameRegionalRecordMapper::countPaodekuaiRecord,
+                gameRegionalRecordMapper::getPaodekuaiRecords,
+                paodekuaiMapper::getNumber);
+    }
+
+    @Override
+    public AjaxResult getPaodekuaiPlayback(Long id) {
+        return getRegionalGamePlayback(id, NiuMaConstants.GAME_TYPE_PAO_DE_KUAI, "跑得快", 2,
+                gameRegionalRecordMapper::getPaodekuaiRecord,
+                gameRegionalRecordMapper::getPaodekuaiPlayback,
+                paodekuaiMapper::getNumber);
+    }
+
+    @Override
+    public PageResult<GameRecordDTO> getChangshaMahjongRecord(PageBody dto) {
+        return getRegionalGameRecord(dto, NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG, "长沙麻将", 4,
+                gameRegionalRecordMapper::countChangshaMahjongRecord,
+                gameRegionalRecordMapper::getChangshaMahjongRecords,
+                changshaMahjongMapper::getNumber);
+    }
+
+    @Override
+    public AjaxResult getChangshaMahjongPlayback(Long id) {
+        return getRegionalGamePlayback(id, NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG, "长沙麻将", 4,
+                gameRegionalRecordMapper::getChangshaMahjongRecord,
+                gameRegionalRecordMapper::getChangshaMahjongPlayback,
+                changshaMahjongMapper::getNumber);
+    }
+
+    private PageResult<GameRecordDTO> getRegionalGameRecord(PageBody dto,
+                                                            Integer gameType,
+                                                            String gameName,
+                                                            int playerCount,
+                                                            RegionalRecordCounter counter,
+                                                            RegionalRecordPager pager,
+                                                            RegionalNumberGetter numberGetter) {
         if (dto.getPageNum() < 1)
             throw new BadRequestException(ResultCodeEnum.PAGE_NUM_ERROR);
         if (dto.getPageSize() < 1)
@@ -2710,72 +3150,27 @@ public class GameServiceImpl implements IGameService {
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         if (player == null)
             throw new InternalServerException("Current login player is null, this is unexpected");
-        PageResult<TaojiangMahjongRecordDTO> result = new PageResult<>();
+        PageResult<GameRecordDTO> result = new PageResult<>();
         result.setCodeEnum(ResultCodeEnum.SUCCESS);
         result.setPageNum(dto.getPageNum());
-        Integer totalNum = this.taojiangMahjongRecordMapper.countRecord(player.getId());
+        LocalDateTime cutoff = getRecordRetentionCutoff();
+        Integer totalNum = counter.count(player.getId(), cutoff);
+        if (totalNum == null)
+            totalNum = 0;
         Integer offset = (dto.getPageNum() - 1) * dto.getPageSize();
         result.setTotal(totalNum);
         if (offset >= totalNum)
             return result;
-        List<GameTaojiangMahjongRecord> records = this.taojiangMahjongRecordMapper.getRecords(player.getId(), offset, dto.getPageSize());
+        List<GameRegionalRecord> records = pager.get(player.getId(), cutoff, offset, dto.getPageSize());
         if ((records == null) || records.isEmpty())
             return result;
-        List<TaojiangMahjongRecordDTO> dtos = new ArrayList<>();
+        List<GameRecordDTO> dtos = new ArrayList<>();
         Map<String, String> numberMap = new HashMap<>();
         Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
-        List<String> playerIds = new ArrayList<>();
-        List<PlayerBaseDTO> playerInfos = null;
-        List<Integer> scores = null;
-        List<Long> winGolds = null;
-        String number = null;
-        PlayerBaseDTO pbd = null;
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss");
-        for (GameTaojiangMahjongRecord record : records) {
-            TaojiangMahjongRecordDTO tmp = new TaojiangMahjongRecordDTO();
-            tmp.setId(record.getId());
-            tmp.setVenueId(record.getVenueId());
-            if (numberMap.containsKey(record.getVenueId()))
-                number = numberMap.get(record.getVenueId());
-            else {
-                number = this.taojiangMahjongMapper.getNumber(record.getVenueId());
-                numberMap.put(record.getVenueId(), number);
-            }
-            tmp.setNumber(number);
-            tmp.setRoundNo(record.getRoundNo());
-            tmp.setBanker(record.getBanker());
-            playerIds.clear();
-            playerIds.add(record.getPlayerId0());
-            playerIds.add(record.getPlayerId1());
-            playerIds.add(record.getPlayerId2());
-            playerIds.add(record.getPlayerId3());
-            playerInfos = new ArrayList<>();
-            for (String playerId : playerIds) {
-                if (StringUtils.isEmpty(playerId)) {
-                    playerInfos.add(null);
-                    continue;
-                }
-                if (playerMap.containsKey(playerId))
-                    pbd = playerMap.get(playerId);
-                else {
-                    pbd = this.playerMapper.getBaseInfo(playerId);
-                    playerMap.put(playerId, pbd);
-                }
-                playerInfos.add(pbd);
-            }
-            tmp.setPlayers(playerInfos);
-            scores = new ArrayList<>();
-            scores.add(record.getScore0());
-            scores.add(record.getScore1());
-            scores.add(record.getScore2());
-            scores.add(record.getScore3());
-            tmp.setScores(scores);
-            winGolds = new ArrayList<>();
-            winGolds.add(record.getWinGold0());
-            winGolds.add(record.getWinGold1());
-            winGolds.add(record.getWinGold2());
-            winGolds.add(record.getWinGold3());
-            tmp.setWinGolds(winGolds);
+        for (GameRegionalRecord record : records) {
+            GameRecordDTO tmp = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
+                    numberMap, playerMap);
             if (record.getTime() != null)
                 tmp.setTime(record.getTime().format(formatter));
             dtos.add(tmp);
@@ -2784,25 +3179,192 @@ public class GameServiceImpl implements IGameService {
         return result;
     }
 
-    @Override
-    public AjaxResult getTaojiangMahjongPlayback(Long id) {
+    private AjaxResult getRegionalGamePlayback(Long id,
+                                               Integer gameType,
+                                               String gameName,
+                                               int playerCount,
+                                               RegionalRecordGetter recordGetter,
+                                               RegionalPlaybackGetter playbackGetter,
+                                               RegionalNumberGetter numberGetter) {
         if (id == null)
             throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "游戏记录id不能为空");
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         if (player == null)
             throw new InternalServerException("Current login player is null, this is unexpected");
-        GameTaojiangMahjongRecord record = this.taojiangMahjongRecordMapper.getRecord(id);
+        GameRegionalRecord record = recordGetter.get(id);
         if (record == null)
             throw new NotFoundException(NiuMaCodeEnum.MAHJONG_RECORD_NOT_EXIST);
-        String playerId = player.getId();
-        if (!(playerId.equals(record.getPlayerId0()) ||
-              playerId.equals(record.getPlayerId1()) ||
-              playerId.equals(record.getPlayerId2()) ||
-              playerId.equals(record.getPlayerId3())))
+        if (!isRegionalRecordParticipant(player.getId(), record, playerCount))
             throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "No permission to access the specified record");
-        String playback = this.taojiangMahjongRecordMapper.getPlayback(id);
+
+        Map<String, String> numberMap = new HashMap<>();
+        Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
+        GameRecordDTO recordDto = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
+                numberMap, playerMap);
+        GameRecordPlaybackDTO playbackDto = new GameRecordPlaybackDTO();
+        playbackDto.setGameType(recordDto.getGameType());
+        playbackDto.setGameName(recordDto.getGameName());
+        playbackDto.setVenueId(recordDto.getVenueId());
+        playbackDto.setNumber(recordDto.getNumber());
+        playbackDto.setRoundNo(recordDto.getRoundNo());
+        playbackDto.setBanker(recordDto.getBanker());
+        playbackDto.setPlayers(recordDto.getPlayers());
+        playbackDto.setScores(recordDto.getScores());
+        playbackDto.setWinGolds(recordDto.getWinGolds());
+        playbackDto.setRetentionDays(gameRecordRetentionService.getRetentionDays());
+        playbackDto.setExpireTime(recordDto.getExpireTime());
+        playbackDto.setFormat("msgpack");
+        playbackDto.setCodec("zlib+base64");
+        if (record.getTime() != null)
+            playbackDto.setTime(record.getTime().format(DateTimeFormatter.ofPattern("MM-dd HH:mm")));
+
+        if (isRecordExpired(record.getTime())) {
+            playbackDto.setHasReplay(false);
+            AjaxResult ajax = AjaxResult.successEx();
+            ajax.put("hasReplay", false);
+            ajax.put("retentionDays", playbackDto.getRetentionDays());
+            ajax.put("expireTime", playbackDto.getExpireTime());
+            ajax.put("format", playbackDto.getFormat());
+            ajax.put("codec", playbackDto.getCodec());
+            ajax.put("msg", "牌局记录已超过追溯期");
+            ajax.put("data", playbackDto);
+            return ajax;
+        }
+
+        String playback = playbackGetter.get(id);
+        playbackDto.setHasReplay(StringUtils.isNotEmpty(playback));
+        playbackDto.setBase64(playback);
         AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("data", playback);
+        ajax.put("hasReplay", playbackDto.getHasReplay());
+        ajax.put("retentionDays", playbackDto.getRetentionDays());
+        ajax.put("expireTime", playbackDto.getExpireTime());
+        ajax.put("format", playbackDto.getFormat());
+        ajax.put("codec", playbackDto.getCodec());
+        if (!playbackDto.getHasReplay())
+            ajax.put("msg", "牌局回放数据不存在");
+        ajax.put("data", playbackDto);
         return ajax;
+    }
+
+    private GameRecordDTO buildRegionalRecordDTO(GameRegionalRecord record,
+                                                 Integer gameType,
+                                                 String gameName,
+                                                 int playerCount,
+                                                 RegionalNumberGetter numberGetter,
+                                                 Map<String, String> numberMap,
+                                                 Map<String, PlayerBaseDTO> playerMap) {
+        GameRecordDTO dto = new GameRecordDTO();
+        dto.setId(record.getId());
+        dto.setGameType(gameType);
+        dto.setGameName(gameName);
+        dto.setVenueId(record.getVenueId());
+        String number = numberMap.get(record.getVenueId());
+        if (!numberMap.containsKey(record.getVenueId())) {
+            number = numberGetter.get(record.getVenueId());
+            numberMap.put(record.getVenueId(), number);
+        }
+        dto.setNumber(number);
+        dto.setRoundNo(record.getRoundNo());
+        dto.setBanker(record.getBanker());
+        dto.setPlayers(getRegionalRecordPlayers(record, playerCount, playerMap));
+        dto.setScores(getRegionalRecordScores(record, playerCount));
+        dto.setWinGolds(getRegionalRecordWinGolds(record, playerCount));
+        fillRecordRetention(dto, record.getTime());
+        return dto;
+    }
+
+    private List<PlayerBaseDTO> getRegionalRecordPlayers(GameRegionalRecord record,
+                                                         int playerCount,
+                                                         Map<String, PlayerBaseDTO> playerMap) {
+        List<PlayerBaseDTO> players = new ArrayList<>();
+        List<String> playerIds = getRegionalPlayerIds(record, playerCount);
+        PlayerBaseDTO pbd;
+        for (String playerId : playerIds) {
+            if (StringUtils.isEmpty(playerId)) {
+                players.add(null);
+                continue;
+            }
+            if (playerMap.containsKey(playerId))
+                pbd = playerMap.get(playerId);
+            else {
+                pbd = this.playerMapper.getBaseInfo(playerId);
+                playerMap.put(playerId, pbd);
+            }
+            players.add(pbd);
+        }
+        return players;
+    }
+
+    private List<String> getRegionalPlayerIds(GameRegionalRecord record, int playerCount) {
+        List<String> playerIds = new ArrayList<>();
+        playerIds.add(record.getPlayerId0());
+        playerIds.add(record.getPlayerId1());
+        if (playerCount > 2)
+            playerIds.add(record.getPlayerId2());
+        if (playerCount > 3)
+            playerIds.add(record.getPlayerId3());
+        return playerIds;
+    }
+
+    private List<Integer> getRegionalRecordScores(GameRegionalRecord record, int playerCount) {
+        List<Integer> scores = new ArrayList<>();
+        scores.add(record.getScore0());
+        scores.add(record.getScore1());
+        if (playerCount > 2)
+            scores.add(record.getScore2());
+        if (playerCount > 3)
+            scores.add(record.getScore3());
+        return scores;
+    }
+
+    private List<Long> getRegionalRecordWinGolds(GameRegionalRecord record, int playerCount) {
+        List<Long> winGolds = new ArrayList<>();
+        winGolds.add(record.getWinGold0());
+        winGolds.add(record.getWinGold1());
+        if (playerCount > 2)
+            winGolds.add(record.getWinGold2());
+        if (playerCount > 3)
+            winGolds.add(record.getWinGold3());
+        return winGolds;
+    }
+
+    private boolean isRegionalRecordParticipant(String playerId, GameRegionalRecord record, int playerCount) {
+        if (playerId == null)
+            return false;
+        for (String tmpId : getRegionalPlayerIds(record, playerCount)) {
+            if (playerId.equals(tmpId))
+                return true;
+        }
+        return false;
+    }
+
+    private LocalDateTime getRecordRetentionCutoff() {
+        return LocalDateTime.now().minusDays(gameRecordRetentionService.getRetentionDays());
+    }
+
+    private boolean isRecordExpired(LocalDateTime recordTime) {
+        return recordTime == null || recordTime.isBefore(getRecordRetentionCutoff());
+    }
+
+    private String formatRecordExpireTime(LocalDateTime recordTime) {
+        if (recordTime == null)
+            return null;
+        return recordTime.plusDays(gameRecordRetentionService.getRetentionDays())
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    private void fillRecordRetention(MahjongRecordDTO dto, LocalDateTime recordTime) {
+        dto.setHasReplay(!isRecordExpired(recordTime));
+        dto.setExpireTime(formatRecordExpireTime(recordTime));
+    }
+
+    private void fillRecordRetention(TaojiangMahjongRecordDTO dto, LocalDateTime recordTime) {
+        dto.setHasReplay(!isRecordExpired(recordTime));
+        dto.setExpireTime(formatRecordExpireTime(recordTime));
+    }
+
+    private void fillRecordRetention(GameRecordDTO dto, LocalDateTime recordTime) {
+        dto.setHasReplay(!isRecordExpired(recordTime));
+        dto.setExpireTime(formatRecordExpireTime(recordTime));
     }
 }

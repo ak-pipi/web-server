@@ -4,6 +4,7 @@ import com.niuma.admin.entity.GameTaojiangMahjongRecord;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -14,7 +15,8 @@ public interface GameTaojiangMahjongRecordMapper {
      * @param playerId 玩家id
      * @return 记录数量
      */
-    Integer countRecord(@Param("playerId") String playerId);
+    Integer countRecord(@Param("playerId") String playerId,
+                        @Param("cutoff") LocalDateTime cutoff);
 
     /**
      * 分页获取玩家的游戏记录列表
@@ -24,8 +26,9 @@ public interface GameTaojiangMahjongRecordMapper {
      * @return 游戏记录列表
      */
     List<GameTaojiangMahjongRecord> getRecords(@Param("playerId") String playerId,
-                                               @Param("offset") Integer offset,
-                                               @Param("pageSize") Integer pageSize);
+                                                @Param("cutoff") LocalDateTime cutoff,
+                                                @Param("offset") Integer offset,
+                                                @Param("pageSize") Integer pageSize);
 
     /**
      * 获取单条游戏记录详情

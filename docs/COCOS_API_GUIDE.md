@@ -170,18 +170,30 @@ GET /player/game/niu100/public     // 百人牛牛公开房列表
 GET /player/game/district/player/count?districtId=3
 ```
 
-### 麻将游戏记录
+### 回放游戏记录
 
 ```
 POST /player/game/mahjong/record
+POST /player/game/taojiang-mahjong/record
+POST /player/game/hongzhong-mahjong/record
+POST /player/game/paodekuai/record
+POST /player/game/changsha-mahjong/record
 // Body: PageBody { pageNum, pageSize }
 ```
 
-### 麻局回放
+仅返回 3 天追溯期内的对局记录；超过 3 天的记录和回放会由服务端定时清理。记录项包含 `hasReplay`、`expireTime`。
+
+### 牌局回放
 
 ```
 GET /player/game/mahjong/playback?id=xxx
+GET /player/game/taojiang-mahjong/playback?id=xxx
+GET /player/game/hongzhong-mahjong/playback?id=xxx
+GET /player/game/paodekuai/playback?id=xxx
+GET /player/game/changsha-mahjong/playback?id=xxx
 ```
+
+仅 3 天追溯期内可查看。超过追溯期时返回 `hasReplay=false`，不返回回放数据。回放响应统一包含 `hasReplay`、`expireTime`、`retentionDays`、`format=msgpack`、`codec=zlib+base64`。
 
 ---
 

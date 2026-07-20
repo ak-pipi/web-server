@@ -18,12 +18,20 @@
     </select>
 
     <select id="countRound" resultType="Integer">
-        select count(*) from `game_lackey_round_player` where `player_id` = #{playerId}
+        select count(*)
+        from `game_lackey_round_player` `t1`
+        inner join `game_lackey_round` `t2` on `t1`.`round_id` = `t2`.`id`
+        where `t1`.`player_id` = #{playerId}
+          and `t2`.`time` <![CDATA[>=]]> #{cutoff}
     </select>
 
     <select id="getRoundIds" resultType="Long">
-        select `round_id` from `game_lackey_round_player` where `player_id` = #{playerId}
-        order by `round_id` desc
+        select `t1`.`round_id`
+        from `game_lackey_round_player` `t1`
+        inner join `game_lackey_round` `t2` on `t1`.`round_id` = `t2`.`id`
+        where `t1`.`player_id` = #{playerId}
+          and `t2`.`time` <![CDATA[>=]]> #{cutoff}
+        order by `t1`.`round_id` desc
         limit #{offset}, #{pageSize}
     </select>
 

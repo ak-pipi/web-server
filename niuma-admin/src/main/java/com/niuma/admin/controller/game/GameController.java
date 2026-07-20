@@ -185,7 +185,7 @@ public class GameController {
      * @param dto 请求体
      */
     @PostMapping("/taojiang-mahjong/record")
-    public PageResult<TaojiangMahjongRecordDTO> getTaojiangMahjongRecord(@RequestBody @Valid PageBody dto) {
+    public PageResult<GameRecordDTO> getTaojiangMahjongRecord(@RequestBody @Valid PageBody dto) {
         return this.gameService.getTaojiangMahjongRecord(dto);
     }
 
@@ -196,5 +196,59 @@ public class GameController {
     @GetMapping("/taojiang-mahjong/playback")
     public AjaxResult getTaojiangMahjongPlayback(@RequestParam("id") Long id) {
         return this.gameService.getTaojiangMahjongPlayback(id);
+    }
+
+    /**
+     * 查询红中麻将游戏记录
+     * @param dto 请求体
+     */
+    @PostMapping("/hongzhong-mahjong/record")
+    public PageResult<GameRecordDTO> getHongzhongMahjongRecord(@RequestBody @Valid PageBody dto) {
+        return this.gameService.getHongzhongMahjongRecord(dto);
+    }
+
+    /**
+     * 查询红中麻将游戏回放
+     * @param id 游戏记录id
+     */
+    @GetMapping("/hongzhong-mahjong/playback")
+    public AjaxResult getHongzhongMahjongPlayback(@RequestParam("id") Long id) {
+        return this.gameService.getHongzhongMahjongPlayback(id);
+    }
+
+    /**
+     * 查询跑得快游戏记录
+     * @param dto 请求体
+     */
+    @PostMapping("/paodekuai/record")
+    public PageResult<GameRecordDTO> getPaodekuaiRecord(@RequestBody @Valid PageBody dto) {
+        return this.gameService.getPaodekuaiRecord(dto);
+    }
+
+    /**
+     * 查询跑得快游戏回放
+     * @param id 游戏记录id
+     */
+    @GetMapping("/paodekuai/playback")
+    public AjaxResult getPaodekuaiPlayback(@RequestParam("id") Long id) {
+        return this.gameService.getPaodekuaiPlayback(id);
+    }
+
+    /**
+     * 查询长沙麻将游戏记录
+     * @param dto 请求体
+     */
+    @PostMapping("/changsha-mahjong/record")
+    public PageResult<GameRecordDTO> getChangshaMahjongRecord(@RequestBody @Valid PageBody dto) {
+        return this.gameService.getChangshaMahjongRecord(dto);
+    }
+
+    /**
+     * 查询长沙麻将游戏回放
+     * @param id 游戏记录id
+     */
+    @GetMapping("/changsha-mahjong/playback")
+    public AjaxResult getChangshaMahjongPlayback(@RequestParam("id") Long id) {
+        return this.gameService.getChangshaMahjongPlayback(id);
     }
 }

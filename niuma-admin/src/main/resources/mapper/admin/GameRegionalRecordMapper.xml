@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.niuma.admin.mapper.GameRegionalRecordMapper">
+
+    <resultMap id="RegionalRecordMap" type="com.niuma.admin.entity.GameRegionalRecord">
+        <id column="id" property="id" />
+        <result column="venue_id" property="venueId" />
+        <result column="round_no" property="roundNo" />
+        <result column="banker" property="banker" />
+        <result column="player_id0" property="playerId0" />
+        <result column="player_id1" property="playerId1" />
+        <result column="player_id2" property="playerId2" />
+        <result column="player_id3" property="playerId3" />
+        <result column="score0" property="score0" />
+        <result column="score1" property="score1" />
+        <result column="score2" property="score2" />
+        <result column="score3" property="score3" />
+        <result column="wingold0" property="winGold0" />
+        <result column="wingold1" property="winGold1" />
+        <result column="wingold2" property="winGold2" />
+        <result column="wingold3" property="winGold3" />
+        <result column="random_seed_hash" property="randomSeedHash" />
+        <result column="time" property="time" />
+    </resultMap>
+
+    <sql id="four_player_record_columns">
+        `id`, `venue_id`, `round_no`, `banker`,
+        `player_id0`, `player_id1`, `player_id2`, `player_id3`,
+        `score0`, `score1`, `score2`, `score3`,
+        `wingold0`, `wingold1`, `wingold2`, `wingold3`,
+        `random_seed_hash`, `time`
+    </sql>
+
+    <sql id="two_player_record_columns">
+        `id`, `venue_id`, `round_no`, `banker`,
+        `player_id0`, `player_id1`,
+        null as `player_id2`, null as `player_id3`,
+        `score0`, `score1`,
+        null as `score2`, null as `score3`,
+        `wingold0`, `wingold1`,
+        null as `wingold2`, null as `wingold3`,
+        `random_seed_hash`, `time`
+    </sql>
+
+    <sql id="four_player_filter">
+        `time` <![CDATA[>=]]> #{cutoff}
+        and (`player_id0` = #{playerId}
+         or `player_id1` = #{playerId}
+         or `player_id2` = #{playerId}
+         or `player_id3` = #{playerId})
+    </sql>
+
+    <sql id="two_player_filter">
+        `time` <![CDATA[>=]]> #{cutoff}
+        and (`player_id0` = #{playerId}
+         or `player_id1` = #{playerId})
+    </sql>
+
+    <select id="countTaojiangMahjongRecord" resultType="Integer">
+        select count(*) from `game_taojiang_mahjong_record`
+        where <include refid="four_player_filter"/>
+    </select>
+
+    <select id="getTaojiangMahjongRecords" resultMap="RegionalRecordMap">
+        select <include refid="four_player_record_columns"/>
+        from `game_taojiang_mahjong_record`
+        where <include refid="four_player_filter"/>
+        order by `id` desc
+        limit #{offset}, #{pageSize}
+    </select>
+
+    <select id="getTaojiangMahjongRecord" resultMap="RegionalRecordMap">
+        select <include refid="four_player_record_columns"/>
+        from `game_taojiang_mahjong_record`
+        where `id` = #{id}
+    </select>
+
+    <select id="getTaojiangMahjongPlayback" resultType="String">
+        select `playback` from `game_taojiang_mahjong_record` where `id` = #{id}
+    </select>
+
+    <select id="countHongzhongMahjongRecord" resultType="Integer">
+        select count(*) from `game_hongzhong_mahjong_record`
+        where <include refid="four_player_filter"/>
+    </select>
+
+    <select id="getHongzhongMahjongRecords" resultMap="RegionalRecordMap">
+        select <include refid="four_player_record_columns"/>
+        from `game_hongzhong_mahjong_record`
+        where <include refid="four_player_filter"/>
+        order by `id` desc
+        limit #{offset}, #{pageSize}
+    </select>
+
+    <select id="getHongzhongMahjongRecord" resultMap="RegionalRecordMap">
+        select <include refid="four_player_record_columns"/>
+        from `game_hongzhong_mahjong_record`
+        where `id` = #{id}
+    </select>
+
+    <select id="getHongzhongMahjongPlayback" resultType="String">
+        select `playback` from `game_hongzhong_mahjong_record` where `id` = #{id}
+    </select>
+
+    <select id="countPaodekuaiRecord" resultType="Integer">
+        select count(*) from `game_paodekuai_record`
+        where <include refid="two_player_filter"/>
+    </select>
+
+    <select id="getPaodekuaiRecords" resultMap="RegionalRecordMap">
+        select <include refid="two_player_record_columns"/>
+        from `game_paodekuai_record`
+        where <include refid="two_player_filter"/>
+        order by `id` desc
+        limit #{offset}, #{pageSize}
+    </select>
+
+    <select id="getPaodekuaiRecord" resultMap="RegionalRecordMap">
+        select <include refid="two_player_record_columns"/>
+        from `game_paodekuai_record`
+        where `id` = #{id}
+    </select>
+
+    <select id="getPaodekuaiPlayback" resultType="String">
+        select `playback` from `game_paodekuai_record` where `id` = #{id}
+    </select>
+
+    <select id="countChangshaMahjongRecord" resultType="Integer">
+        select count(*) from `game_changsha_mahjong_record`
+        where <include refid="four_player_filter"/>
+    </select>
+
+    <select id="getChangshaMahjongRecords" resultMap="RegionalRecordMap">
+        select <include refid="four_player_record_columns"/>
+        from `game_changsha_mahjong_record`
+        where <include refid="four_player_filter"/>
+        order by `id` desc
+        limit #{offset}, #{pageSize}
+    </select>
+
+    <select id="getChangshaMahjongRecord" resultMap="RegionalRecordMap">
+        select <include refid="four_player_record_columns"/>
+        from `game_changsha_mahjong_record`
+        where `id` = #{id}
+    </select>
+
+    <select id="getChangshaMahjongPlayback" resultType="String">
+        select `playback` from `game_changsha_mahjong_record` where `id` = #{id}
+    </select>
+</mapper>

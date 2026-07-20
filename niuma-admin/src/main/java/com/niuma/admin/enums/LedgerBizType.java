@@ -19,6 +19,7 @@ public enum LedgerBizType {
     TRANSFER_OUT("transfer_out", "转账转出"),
     ACTIVITY_REWARD("activity_reward", "活动奖励"),
     INVITE_REWARD("invite_reward", "邀请奖励"),
+    AGENCY_COMMISSION("agency_commission", "代理房费返佣"),
     ADMIN_ADJUST("admin_adjust", "后台人工调整"),
 
     // === 保险箱类 ===

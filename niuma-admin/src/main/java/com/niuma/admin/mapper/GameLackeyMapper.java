@@ -8,6 +8,7 @@ import com.niuma.admin.entity.GameLackey;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -38,7 +39,8 @@ public interface GameLackeyMapper extends BaseMapper<GameLackey> {
      * @param playerId 玩家id
      * @return 记录数量
      */
-    Integer countRound(@Param("playerId") String playerId);
+    Integer countRound(@Param("playerId") String playerId,
+                       @Param("cutoff") LocalDateTime cutoff);
 
     /**
      * 分页查询逮狗腿游戏记录ID
@@ -48,6 +50,7 @@ public interface GameLackeyMapper extends BaseMapper<GameLackey> {
      * @return 逮狗腿游戏记录ID列表
      */
     List<Long> getRoundIds(@Param("playerId") String playerId,
+                           @Param("cutoff") LocalDateTime cutoff,
                            @Param("offset") Integer offset,
                            @Param("pageSize") Integer pageSize);
 

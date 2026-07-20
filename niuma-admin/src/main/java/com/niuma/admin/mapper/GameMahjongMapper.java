@@ -7,6 +7,7 @@ import com.niuma.admin.entity.MahjongRecord;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
@@ -37,7 +38,8 @@ public interface GameMahjongMapper extends BaseMapper<GameMahjong> {
      * @param playerId 玩家id
      * @return 记录数量
      */
-    Integer countRecord(@Param("playerId") String playerId);
+    Integer countRecord(@Param("playerId") String playerId,
+                        @Param("cutoff") LocalDateTime cutoff);
 
     /**
      * 分页查询麻将游戏记录
@@ -47,6 +49,7 @@ public interface GameMahjongMapper extends BaseMapper<GameMahjong> {
      * @return 麻将游戏记录列表
      */
     List<MahjongRecord> getRecords(@Param("playerId") String playerId,
+                                   @Param("cutoff") LocalDateTime cutoff,
                                    @Param("offset") Integer offset,
                                    @Param("pageSize") Integer pageSize);
 

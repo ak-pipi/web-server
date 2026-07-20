@@ -14,7 +14,9 @@ import com.niuma.admin.entity.*;
 import com.niuma.admin.enums.LedgerBizType;
 import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.service.IGameRecordRetentionService;
 import com.niuma.admin.service.ISettleService;
+import com.niuma.admin.service.IAgencyManageService;
 import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
@@ -60,10 +62,16 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
     private RoomFeeLedgerMapper roomFeeLedgerMapper;
 
     @Autowired
+    private IAgencyManageService agencyManageService;
+
+    @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private IGameRecordRetentionService gameRecordRetentionService;
 
     // ==================== MQ 结算处理入口 ====================
 
@@ -165,6 +173,7 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
     @Override
     public PageResult<GameRound> querySettlements(SettleQueryDTO dto) {
         LambdaQueryWrapper<GameRound> wrapper = Wrappers.lambdaQuery(GameRound.class);
+        wrapper.ge(GameRound::getSettledAt, getRecordRetentionCutoff());
 
         if (dto.getRoomId() != null && !dto.getRoomId().isEmpty()) {
             wrapper.eq(GameRound::getRoomId, dto.getRoomId());
@@ -197,6 +206,9 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
         GameRound round = gameRoundMapper.selectById(roundId);
         if (round == null) {
             throw new BadRequestException("结算记录不存在: " + roundId);
+        }
+        if (isRoundExpired(round)) {
+            throw new BadRequestException("结算记录已超过追溯期: " + roundId);
         }
 
         AjaxResult result = AjaxResult.successEx();
@@ -241,6 +253,7 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
     public AjaxResult getRoomSettlements(String roomId) {
         LambdaQueryWrapper<GameRound> wrapper = Wrappers.lambdaQuery(GameRound.class)
                 .eq(GameRound::getRoomId, roomId)
+                .ge(GameRound::getSettledAt, getRecordRetentionCutoff())
                 .orderByAsc(GameRound::getRoundNo);
         List<GameRound> rounds = gameRoundMapper.selectList(wrapper);
 
@@ -260,6 +273,7 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
 
         // 基础查询条件
         LambdaQueryWrapper<GameRound> wrapper = Wrappers.lambdaQuery(GameRound.class);
+        wrapper.ge(GameRound::getSettledAt, getRecordRetentionCutoff());
         if (startDate != null && !startDate.isEmpty()) {
             wrapper.ge(GameRound::getSettledAt, startDate);
         }
@@ -275,6 +289,15 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
         result.put("endDate", endDate);
 
         return result;
+    }
+
+    private LocalDateTime getRecordRetentionCutoff() {
+        return LocalDateTime.now().minusDays(gameRecordRetentionService.getRetentionDays());
+    }
+
+    private boolean isRoundExpired(GameRound round) {
+        LocalDateTime time = round.getSettledAt() != null ? round.getSettledAt() : round.getCreateTime();
+        return time == null || time.isBefore(getRecordRetentionCutoff());
     }
 
     // ==================== 内部核心方法 ====================
@@ -408,6 +431,7 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
                 dto.getRoundNo(), dto.getGameCode(), playerResult.getUserId()));
         feeLedger.setCreateTime(LocalDateTime.now());
         roomFeeLedgerMapper.insert(feeLedger);
+        agencyManageService.processRoomFee(feeLedger);
     }
 
     /**

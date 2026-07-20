@@ -14,6 +14,7 @@ import com.niuma.admin.entity.Robot;
 import com.niuma.admin.factory.PlayerAsyncFactory;
 import com.niuma.admin.mapper.*;
 import com.niuma.admin.service.ICapitalService;
+import com.niuma.admin.service.IAgencyManageService;
 import com.niuma.admin.service.IPlayerService;
 import com.niuma.common.constant.CacheConstants;
 import com.niuma.common.constant.Constants;
@@ -37,6 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.util.List;
@@ -71,6 +73,9 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
 
     @Autowired
     private ICapitalService capitalService;
+
+    @Autowired
+    private IAgencyManageService agencyManageService;
 
     @Autowired
     private AgencyMapper agencyMapper;
@@ -199,6 +204,7 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AjaxResult register(RegisterDTO dto) {
         String name = AesUtil.decrypt(dto.getName());
         String password = AesUtil.decrypt(dto.getPassword());
@@ -232,6 +238,9 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         capital.setDiamond(1000L);
         capital.setVersion(1L);
         this.capitalService.save(capital);
+        if (StringUtils.isNotEmpty(dto.getInviteCode())) {
+            this.agencyManageService.bindByInviteCode(entity.getId(), dto.getInviteCode(), "register", null);
+        }
         return AjaxResult.successEx();
     }
 

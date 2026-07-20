@@ -56,4 +56,14 @@ public class MahjongRecordDTO {
      * 结算时间
      */
     private String time;
+
+    /**
+     * 是否仍在回放追溯期内
+     */
+    private Boolean hasReplay;
+
+    /**
+     * 回放/记录追溯截止时间
+     */
+    private String expireTime;
 }

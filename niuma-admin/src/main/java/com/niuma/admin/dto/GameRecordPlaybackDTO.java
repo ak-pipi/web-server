@@ -5,11 +5,12 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * 桃江麻将游戏记录数据传输对象
+ * 地区游戏回放数据传输对象。
  */
 @Data
-public class TaojiangMahjongRecordDTO {
-    private Long id;
+public class GameRecordPlaybackDTO {
+    private Integer gameType;
+    private String gameName;
     private String venueId;
     private String number;
     private Integer roundNo;
@@ -17,7 +18,11 @@ public class TaojiangMahjongRecordDTO {
     private List<PlayerBaseDTO> players;
     private List<Integer> scores;
     private List<Long> winGolds;
-    private String time;
+    private String base64;
     private Boolean hasReplay;
+    private Integer retentionDays;
     private String expireTime;
+    private String format;
+    private String codec;
+    private String time;
 }

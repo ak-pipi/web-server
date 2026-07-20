@@ -34,4 +34,7 @@ public class RegisterDTO {
     // 唯一标识
     @NotBlank(message = "唯一标识不能为空")
     private String uuid;
+
+    // 邀请码，可选
+    private String inviteCode;
 }

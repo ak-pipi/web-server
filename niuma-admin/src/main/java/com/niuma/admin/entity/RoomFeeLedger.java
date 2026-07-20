@@ -1,5 +1,6 @@
 package com.niuma.admin.entity;
 
+import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
@@ -14,7 +15,7 @@ import java.time.LocalDateTime;
 @TableName("room_fee_ledger")
 public class RoomFeeLedger {
     /** 主键 */
-    @TableId
+    @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
     /** 房主/付费玩家ID */

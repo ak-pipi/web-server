@@ -21,6 +21,7 @@ import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.SecurityUtils;
 import com.niuma.common.utils.ip.IpUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -153,7 +154,9 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
 
         // 记录审计日志
         AdminAuditLog auditLog = new AdminAuditLog();
+        auditLog.setAdminId(SecurityUtils.getUserId());
         auditLog.setAdminName(operator);
+        auditLog.setModule("SETTLE");
         auditLog.setAction("SETTLE_REPROCESS");
         auditLog.setTargetType("game_round");
         auditLog.setTargetId(messageId);
@@ -421,14 +424,24 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
      * 记录房费流水
      */
     private void recordRoomFee(SettleMessageDTO dto, SettlePlayerResultDTO playerResult, Long roundId) {
+        String playerId = String.valueOf(playerResult.getUserId());
+        String walletType = playerResult.getWalletType() != null && !playerResult.getWalletType().isEmpty()
+                ? playerResult.getWalletType()
+                : WalletType.GOLD.getCode();
+        String remark = String.format("第%d局房费 | %s | 玩家:%d",
+                dto.getRoundNo(), dto.getGameCode(), playerResult.getUserId());
+        walletService.decrease(playerId, walletType, playerResult.getRoomFeeAmount(),
+                LedgerBizType.ROOM_FEE.getCode(),
+                "ROOM_FEE_" + dto.getMessageId() + "_" + playerResult.getUserId(),
+                remark);
+
         RoomFeeLedger feeLedger = new RoomFeeLedger();
-        feeLedger.setUserId(String.valueOf(playerResult.getUserId()));
+        feeLedger.setUserId(playerId);
         feeLedger.setRoomId(dto.getRoomId());
         feeLedger.setFeeType("SETTLE");
         feeLedger.setFeeAmount(playerResult.getRoomFeeAmount());
-        feeLedger.setPayWalletType(WalletType.ROOM_CARD.getCode());
-        feeLedger.setRemark(String.format("第%d局房费 | %s | 玩家:%d",
-                dto.getRoundNo(), dto.getGameCode(), playerResult.getUserId()));
+        feeLedger.setPayWalletType(walletType);
+        feeLedger.setRemark(remark);
         feeLedger.setCreateTime(LocalDateTime.now());
         roomFeeLedgerMapper.insert(feeLedger);
         agencyManageService.processRoomFee(feeLedger);

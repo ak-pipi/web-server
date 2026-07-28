@@ -9,10 +9,13 @@ import com.niuma.admin.constant.NiuMaRedisKeys;
 import com.niuma.admin.data.*;
 import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.*;
+import com.niuma.admin.enums.LedgerBizType;
+import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.*;
 import com.niuma.admin.rabbit.RabbitSender;
 import com.niuma.admin.service.IGameRecordRetentionService;
 import com.niuma.admin.service.IGameService;
+import com.niuma.admin.service.IWalletService;
 import com.niuma.admin.utils.JsonUtils;
 import com.niuma.common.constant.ResultCodeEnum;
 import com.niuma.common.core.domain.AjaxResult;
@@ -139,6 +142,12 @@ public class GameServiceImpl implements IGameService {
 
     @Resource
     private IGameRecordRetentionService gameRecordRetentionService;
+
+    @Autowired
+    private WalletChangeEventProcessor walletChangeEventProcessor;
+
+    @Autowired
+    private IWalletService walletService;
 
     // 异步命令映射表
     private Map<String, MqCommandDeferred> commandDeferredMap = new HashMap<>();
@@ -556,7 +565,16 @@ public class GameServiceImpl implements IGameService {
     private String resolveRuleConfig(String json) {
         if (StringUtils.isEmpty(json))
             return "{}";
-        return json;
+        try {
+            JSONObject raw = JSONObject.parseObject(json);
+            if (raw == null)
+                return "{}";
+            if (raw.getInteger("room_fee") == null && raw.getInteger("room_fee_type") == null)
+                putRoomFee(raw, resolveDefaultRoomFee(resolvePositiveBaseScore(raw)));
+            return raw.toJSONString();
+        } catch (Exception ex) {
+            return json;
+        }
     }
 
     /**
@@ -578,9 +596,7 @@ public class GameServiceImpl implements IGameService {
         Integer maxScore = raw.getInteger("max_score");
         if (maxScore != null && maxScore > 0)
             rule.put("max_score", maxScore);
-        Integer roomFeeType = raw.getInteger("room_fee_type");
-        if (roomFeeType != null)
-            rule.put("room_fee_type", roomFeeType);
+        applyRoomFeeOverride(raw, rule);
         return rule.toJSONString();
     }
 
@@ -614,6 +630,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("bao_ting_enabled", true);
         rule.put("dissolve_vote", true);
         rule.put("banker_rule", 0);
+        putRoomFee(rule, resolveDefaultRoomFee(baseScore));
     }
 
     /**
@@ -629,15 +646,13 @@ public class GameServiceImpl implements IGameService {
             rule.put("level", level);
 
         int roundCount = normalizeChangshaRoundCount(raw.getInteger("round_count"));
-        int baseScore = normalizeChangshaBaseScore(raw.getInteger("base_score"));
+        int baseScore = normalizeChangshaBaseScore(raw.getInteger("base_score"), roundCount);
         fillChangshaRuleDefaults(rule, baseScore, roundCount);
 
         Integer maxScore = raw.getInteger("max_score");
         if (maxScore != null && maxScore >= 0)
             rule.put("max_score", maxScore);
-        Integer roomFeeType = raw.getInteger("room_fee_type");
-        if (roomFeeType != null && roomFeeType >= 0)
-            rule.put("room_fee_type", roomFeeType);
+        applyRoomFeeOverride(raw, rule);
         Integer maxFan = raw.getInteger("max_fan");
         if (maxFan != null)
             rule.put("max_fan", normalizeChangshaMaxFan(maxFan));
@@ -669,9 +684,11 @@ public class GameServiceImpl implements IGameService {
         return (roundCount != null && roundCount == 1) ? 1 : 8;
     }
 
-    private int normalizeChangshaBaseScore(Integer baseScore) {
+    private int normalizeChangshaBaseScore(Integer baseScore, int roundCount) {
         int score = baseScore == null ? 0 : baseScore;
-        int[] validScores = new int[] {1, 2, 5, 10};
+        int[] validScores = roundCount == 1
+                ? new int[] {5, 10, 25}
+                : new int[] {1, 2, 5, 10, 20};
         for (int validScore : validScores) {
             if (score == validScore)
                 return score;
@@ -692,10 +709,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     private int resolveChangshaRoomFee(int baseScore) {
-        if (baseScore == 1 || baseScore == 2) return 2;
-        if (baseScore == 5) return 4;
-        if (baseScore == 10) return 6;
-        return 2;
+        return resolveDefaultRoomFee(baseScore);
     }
 
     private void fillChangshaRuleDefaults(JSONObject rule, int baseScore, int roundCount) {
@@ -705,8 +719,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("round_count", roundCount);
         rule.put("player_count", 4);
         rule.put("max_score", 300);
-        rule.put("room_fee_type", roomFee);
-        rule.put("room_fee", roomFee);
+        putRoomFee(rule, roomFee);
         rule.put("allow_chi", true);
         rule.put("allow_peng", true);
         rule.put("allow_gang", true);
@@ -749,9 +762,10 @@ public class GameServiceImpl implements IGameService {
             rule.put("level", level);
 
         int roundCount = normalizeHongzhongRoundCount(raw.getInteger("round_count"));
-        int baseScore = normalizeHongzhongBaseScore(raw.getInteger("base_score"));
+        int baseScore = normalizeHongzhongBaseScore(raw.getInteger("base_score"), roundCount);
         int playerCount = normalizeHongzhongPlayerCount(raw.getInteger("player_count"));
         fillHongzhongRuleDefaults(rule, baseScore, roundCount, playerCount);
+        applyRoomFeeOverride(raw, rule);
         return rule.toJSONString();
     }
 
@@ -759,9 +773,11 @@ public class GameServiceImpl implements IGameService {
         return (roundCount != null && roundCount == 1) ? 1 : 8;
     }
 
-    private int normalizeHongzhongBaseScore(Integer baseScore) {
+    private int normalizeHongzhongBaseScore(Integer baseScore, int roundCount) {
         int score = baseScore == null ? 0 : baseScore;
-        int[] validScores = new int[] {1, 2, 3, 5, 10, 20};
+        int[] validScores = roundCount == 1
+                ? new int[] {5, 10, 25}
+                : new int[] {1, 2, 5, 10, 20};
         for (int validScore : validScores) {
             if (score == validScore)
                 return score;
@@ -774,12 +790,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     private int resolveHongzhongRoomFee(int baseScore) {
-        if (baseScore == 1 || baseScore == 2) return 2;
-        if (baseScore == 3) return 3;
-        if (baseScore == 5) return 4;
-        if (baseScore == 10) return 6;
-        if (baseScore == 20) return 7;
-        return 2;
+        return resolveDefaultRoomFee(baseScore);
     }
 
     private void fillHongzhongRuleDefaults(JSONObject rule, int baseScore, int roundCount, int playerCount) {
@@ -788,8 +799,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("round_count", roundCount);
         rule.put("player_count", playerCount);
         rule.put("max_score", 0);
-        rule.put("room_fee_type", roomFee);
-        rule.put("room_fee", roomFee);
+        putRoomFee(rule, roomFee);
         rule.put("allow_chi", false);
         rule.put("allow_peng", true);
         rule.put("allow_gang", true);
@@ -826,15 +836,13 @@ public class GameServiceImpl implements IGameService {
             rule.put("level", level);
 
         int roundCount = normalizePaodekuaiRoundCount(raw.getInteger("round_count"));
-        int baseScore = normalizePaodekuaiBaseScore(raw.getInteger("base_score"));
+        int baseScore = normalizePaodekuaiBaseScore(raw.getInteger("base_score"), roundCount);
         fillPaodekuaiRuleDefaults(rule, baseScore, roundCount);
 
         Integer maxScore = raw.getInteger("max_score");
         if (maxScore != null && maxScore >= 0)
             rule.put("max_score", maxScore);
-        Integer roomFeeType = raw.getInteger("room_fee_type");
-        if (roomFeeType != null)
-            rule.put("room_fee_type", roomFeeType);
+        applyRoomFeeOverride(raw, rule);
         return rule.toJSONString();
     }
 
@@ -842,9 +850,11 @@ public class GameServiceImpl implements IGameService {
         return (roundCount != null && roundCount == 1) ? 1 : 8;
     }
 
-    private int normalizePaodekuaiBaseScore(Integer baseScore) {
+    private int normalizePaodekuaiBaseScore(Integer baseScore, int roundCount) {
         int score = baseScore == null ? 0 : baseScore;
-        int[] validScores = new int[] {1, 2, 5, 10};
+        int[] validScores = roundCount == 1
+                ? new int[] {5, 10, 25}
+                : new int[] {1, 2, 5, 10, 20};
         for (int validScore : validScores) {
             if (score == validScore)
                 return score;
@@ -867,6 +877,30 @@ public class GameServiceImpl implements IGameService {
         rule.put("spring_double", true);
         rule.put("auto_play_timeout", 180000);
         rule.put("deck_rule", "remove_jokers_3x2_3xA_1xK");
+        putRoomFee(rule, resolveDefaultRoomFee(baseScore));
+    }
+
+    private int resolveDefaultRoomFee(int baseScore) {
+        if (baseScore <= 2) return 2;
+        if (baseScore == 3) return 3;
+        if (baseScore == 5) return 4;
+        if (baseScore == 10) return 6;
+        if (baseScore >= 20) return 7;
+        return 2;
+    }
+
+    private void putRoomFee(JSONObject rule, int roomFee) {
+        int value = Math.max(0, roomFee);
+        rule.put("room_fee_type", value);
+        rule.put("room_fee", value);
+    }
+
+    private void applyRoomFeeOverride(JSONObject raw, JSONObject rule) {
+        Integer roomFee = raw.getInteger("room_fee");
+        if (roomFee == null)
+            roomFee = raw.getInteger("room_fee_type");
+        if (roomFee != null && roomFee >= 0)
+            putRoomFee(rule, roomFee);
     }
 
     private String decodeRuleConfigBase64(String base64) {
@@ -911,11 +945,14 @@ public class GameServiceImpl implements IGameService {
             int roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeTaojiangBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
-            baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"));
+            int roundCount = normalizeHongzhongRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
-            baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"));
+            int roundCount = normalizeChangshaRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
-            baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"));
+            int roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
@@ -933,11 +970,14 @@ public class GameServiceImpl implements IGameService {
             int roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeTaojiangBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
-            baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"));
+            int roundCount = normalizeHongzhongRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
-            baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"));
+            int roundCount = normalizeChangshaRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
-            baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"));
+            int roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
+            baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
@@ -1325,18 +1365,8 @@ public class GameServiceImpl implements IGameService {
             throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "Required parameter \"isPublic\" missing");
         if (deposit < 200000L)
             throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "最低奖池押金数20万金币");
-        CapitalAmount amount = this.capitalMapper.getCapital(playerId);
-        Long gold = null;
-        if (amount != null)
-            gold = amount.getGold();
-        if (gold == null)
-            gold = 0L;
-        if (gold < deposit)
-            throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足");
-        gold -= deposit;
-        Integer count = this.capitalMapper.setCapital(playerId, gold, null, null, amount.getVersion());
-        if ((count == null) || (count < 1))
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
+        walletService.decrease(playerId, WalletType.GOLD.getCode(), deposit,
+                LedgerBizType.ROOM_DEPOSIT.getCode(), null, "创建百人牛牛奖池押金");
         String number = this.generateNumber(new Niu100NumberTester(this.niu100Mapper));
         log.info("玩家(ID：{})创建百人牛牛游戏(房号：{})，奖池押金：{}", playerId, number, deposit);
         GameNiu100 entity = new GameNiu100();
@@ -1371,7 +1401,8 @@ public class GameServiceImpl implements IGameService {
         if (level != null)
             rule.put("level", level);
         Integer baseScore = raw.getInteger("base_score");
-        rule.put("base_score", baseScore != null && baseScore > 0 ? baseScore : 1);
+        int normalizedBaseScore = baseScore != null && baseScore > 0 ? baseScore : 1;
+        rule.put("base_score", normalizedBaseScore);
         Integer roundCount = raw.getInteger("round_count");
         rule.put("round_count", roundCount != null && roundCount > 0 ? roundCount : 8);
         Integer maxScore = raw.getInteger("max_score");
@@ -1381,6 +1412,27 @@ public class GameServiceImpl implements IGameService {
         rule.put("hand_card_count", DOUDIZHU_HAND_CARD_COUNT);
         rule.put("bottom_card_count", DOUDIZHU_BOTTOM_CARD_COUNT);
         rule.put("auto_play_timeout", DOUDIZHU_AUTO_PLAY_TIMEOUT);
+        putRoomFee(rule, resolveDefaultRoomFee(normalizedBaseScore));
+        applyRoomFeeOverride(raw, rule);
+        return rule.toJSONString();
+    }
+
+    private String resolveGuandanRuleConfig(String json) {
+        JSONObject raw = StringUtils.isEmpty(json) ? null : JSONObject.parseObject(json);
+        if (raw == null)
+            raw = new JSONObject();
+        JSONObject rule = new JSONObject();
+        Integer level = raw.getInteger("level");
+        if (level != null)
+            rule.put("level", level);
+        Integer roundCount = raw.getInteger("round_count");
+        rule.put("round_count", roundCount != null && roundCount > 0 ? roundCount : 8);
+        Integer baseScore = raw.getInteger("base_score");
+        int normalizedBaseScore = baseScore != null && baseScore > 0 ? baseScore : 1;
+        rule.put("base_score", normalizedBaseScore);
+        rule.put("player_count", 4);
+        putRoomFee(rule, resolveDefaultRoomFee(normalizedBaseScore));
+        applyRoomFeeOverride(raw, rule);
         return rule.toJSONString();
     }
 
@@ -1429,6 +1481,7 @@ public class GameServiceImpl implements IGameService {
         GameGuanDan entity = new GameGuanDan();
         entity.setNumber(number);
         entity.setLevel(level);
+        entity.setRuleConfig(resolveGuandanRuleConfig(json));
         return entity;
     }
 
@@ -2141,6 +2194,7 @@ public class GameServiceImpl implements IGameService {
             } else if (districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_MASTER)) {
                 entity.setLevel(GuanDanLevel.Master.ordinal());
             }
+            entity.setRuleConfig(buildGuandanDistrictRuleConfig(resolveGuandanBaseScore(districtId), 8));
             this.guanDanMapper.insert(entity);
         }
         // 桃江麻将 districts (9-16)
@@ -2157,7 +2211,7 @@ public class GameServiceImpl implements IGameService {
             entity.setRuleConfig(buildTaojiangDistrictRuleConfig(resolveTaojiangBaseScore(districtId), resolveTaojiangRoundCount(districtId)));
             this.taojiangMahjongMapper.insert(entity);
         }
-        // 红中麻将 districts (17-20)
+        // 红中麻将 districts
         else if (isHongzhongDistrict(districtId)) {
             venueId = generateVenueId();
             venue.setId(venueId);
@@ -2168,10 +2222,11 @@ public class GameServiceImpl implements IGameService {
             entity.setNumber(number);
             entity.setVenueId(venueId);
             entity.setLevel(GuanDanLevel.Beginner.ordinal());
-            entity.setRuleConfig(buildHongzhongDistrictRuleConfig(resolveHongzhongBaseScore(districtId), 8));
+            entity.setRuleConfig(buildHongzhongDistrictRuleConfig(resolveHongzhongBaseScore(districtId),
+                    resolveHongzhongRoundCount(districtId)));
             this.hongzhongMahjongMapper.insert(entity);
         }
-        // 长沙麻将 districts (21-24)
+        // 长沙麻将 districts
         else if (isChangshaDistrict(districtId)) {
             venueId = generateVenueId();
             venue.setId(venueId);
@@ -2182,10 +2237,11 @@ public class GameServiceImpl implements IGameService {
             entity.setNumber(number);
             entity.setVenueId(venueId);
             entity.setLevel(GuanDanLevel.Beginner.ordinal());
-            entity.setRuleConfig(buildChangshaDistrictRuleConfig(resolveChangshaBaseScore(districtId), 8));
+            entity.setRuleConfig(buildChangshaDistrictRuleConfig(resolveChangshaBaseScore(districtId),
+                    resolveChangshaRoundCount(districtId)));
             this.changshaMahjongMapper.insert(entity);
         }
-        // 跑得快 districts (25-28)
+        // 跑得快 districts
         else if (isPaodekuaiDistrict(districtId)) {
             venueId = generateVenueId();
             venue.setId(venueId);
@@ -2196,7 +2252,8 @@ public class GameServiceImpl implements IGameService {
             entity.setNumber(number);
             entity.setVenueId(venueId);
             entity.setLevel(GuanDanLevel.Beginner.ordinal());
-            entity.setRuleConfig(buildPaodekuaiDistrictRuleConfig(resolvePaodekuaiBaseScore(districtId), 8));
+            entity.setRuleConfig(buildPaodekuaiDistrictRuleConfig(resolvePaodekuaiBaseScore(districtId),
+                    resolvePaodekuaiRoundCount(districtId)));
             this.paodekuaiMapper.insert(entity);
         }
         // 歪胡子 districts (29-32)
@@ -2250,13 +2307,37 @@ public class GameServiceImpl implements IGameService {
         return id >= NiuMaConstants.DISTRICT_TAOJIANG_B5_R1 && id <= NiuMaConstants.DISTRICT_TAOJIANG_B20_R8;
     }
     private boolean isHongzhongDistrict(int id) {
-        return id >= NiuMaConstants.DISTRICT_HONGZHONG_B1_R8 && id <= NiuMaConstants.DISTRICT_HONGZHONG_B10_R8;
+        return isKnownDistrict(id,
+                NiuMaConstants.DISTRICT_HONGZHONG_B5_R1,
+                NiuMaConstants.DISTRICT_HONGZHONG_B10_R1,
+                NiuMaConstants.DISTRICT_HONGZHONG_B25_R1,
+                NiuMaConstants.DISTRICT_HONGZHONG_B1_R8,
+                NiuMaConstants.DISTRICT_HONGZHONG_B2_R8,
+                NiuMaConstants.DISTRICT_HONGZHONG_B5_R8,
+                NiuMaConstants.DISTRICT_HONGZHONG_B10_R8,
+                NiuMaConstants.DISTRICT_HONGZHONG_B20_R8);
     }
     private boolean isChangshaDistrict(int id) {
-        return id >= NiuMaConstants.DISTRICT_CHANGSHA_B1_R8 && id <= NiuMaConstants.DISTRICT_CHANGSHA_B10_R8;
+        return isKnownDistrict(id,
+                NiuMaConstants.DISTRICT_CHANGSHA_B5_R1,
+                NiuMaConstants.DISTRICT_CHANGSHA_B10_R1,
+                NiuMaConstants.DISTRICT_CHANGSHA_B25_R1,
+                NiuMaConstants.DISTRICT_CHANGSHA_B1_R8,
+                NiuMaConstants.DISTRICT_CHANGSHA_B2_R8,
+                NiuMaConstants.DISTRICT_CHANGSHA_B5_R8,
+                NiuMaConstants.DISTRICT_CHANGSHA_B10_R8,
+                NiuMaConstants.DISTRICT_CHANGSHA_B20_R8);
     }
     private boolean isPaodekuaiDistrict(int id) {
-        return id >= NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8 && id <= NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8;
+        return isKnownDistrict(id,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8,
+                NiuMaConstants.DISTRICT_PAO_DE_KUAI_B20_R8);
     }
     private boolean isWaihuziDistrict(int id) {
         return id >= NiuMaConstants.DISTRICT_WAIHUZI_B1_R8 && id <= NiuMaConstants.DISTRICT_WAIHUZI_B10_R8;
@@ -2268,6 +2349,15 @@ public class GameServiceImpl implements IGameService {
         return id >= NiuMaConstants.DISTRICT_DOU_DI_ZHU_B1_R8 && id <= NiuMaConstants.DISTRICT_DOU_DI_ZHU_B10_R8;
     }
 
+    private boolean isKnownDistrict(int id, int... supportedIds) {
+        for (int supportedId : supportedIds) {
+            if (id == supportedId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 构造 district 场地的 ruleConfig JSON */
     private String buildDistrictRuleConfig(int baseScore, int roundCount) {
         JSONObject rule = new JSONObject();
@@ -2275,6 +2365,7 @@ public class GameServiceImpl implements IGameService {
         rule.put("base_score", baseScore);
         rule.put("round_count", roundCount);
         rule.put("max_score", 0);
+        putRoomFee(rule, resolveDefaultRoomFee(baseScore));
         return rule.toJSONString();
     }
 
@@ -2313,6 +2404,17 @@ public class GameServiceImpl implements IGameService {
         rule.put("hand_card_count", DOUDIZHU_HAND_CARD_COUNT);
         rule.put("bottom_card_count", DOUDIZHU_BOTTOM_CARD_COUNT);
         rule.put("auto_play_timeout", DOUDIZHU_AUTO_PLAY_TIMEOUT);
+        putRoomFee(rule, resolveDefaultRoomFee(baseScore));
+        return rule.toJSONString();
+    }
+
+    private String buildGuandanDistrictRuleConfig(int baseScore, int roundCount) {
+        JSONObject rule = new JSONObject();
+        rule.put("level", 3);
+        rule.put("base_score", baseScore);
+        rule.put("round_count", roundCount);
+        rule.put("player_count", 4);
+        putRoomFee(rule, resolveDefaultRoomFee(baseScore));
         return rule.toJSONString();
     }
 
@@ -2340,22 +2442,46 @@ public class GameServiceImpl implements IGameService {
         return 8;
     }
     private int resolveHongzhongBaseScore(int id) {
-        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R1 || id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R8) return 5;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B10_R1 || id == NiuMaConstants.DISTRICT_HONGZHONG_B10_R8) return 10;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B25_R1) return 25;
         if (id == NiuMaConstants.DISTRICT_HONGZHONG_B2_R8) return 2;
-        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R8) return 5;
-        return 10;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B20_R8) return 20;
+        return 1;
+    }
+    private int resolveHongzhongRoundCount(int id) {
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R1 ||
+                id == NiuMaConstants.DISTRICT_HONGZHONG_B10_R1 ||
+                id == NiuMaConstants.DISTRICT_HONGZHONG_B25_R1) return 1;
+        return 8;
     }
     private int resolveChangshaBaseScore(int id) {
-        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B5_R1 || id == NiuMaConstants.DISTRICT_CHANGSHA_B5_R8) return 5;
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B10_R1 || id == NiuMaConstants.DISTRICT_CHANGSHA_B10_R8) return 10;
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B25_R1) return 25;
         if (id == NiuMaConstants.DISTRICT_CHANGSHA_B2_R8) return 2;
-        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B5_R8) return 5;
-        return 10;
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B20_R8) return 20;
+        return 1;
+    }
+    private int resolveChangshaRoundCount(int id) {
+        if (id == NiuMaConstants.DISTRICT_CHANGSHA_B5_R1 ||
+                id == NiuMaConstants.DISTRICT_CHANGSHA_B10_R1 ||
+                id == NiuMaConstants.DISTRICT_CHANGSHA_B25_R1) return 1;
+        return 8;
     }
     private int resolvePaodekuaiBaseScore(int id) {
-        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8) return 1;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1 || id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8) return 5;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1 || id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8) return 10;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1) return 25;
         if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8) return 2;
-        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8) return 5;
-        return 10;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B20_R8) return 20;
+        return 1;
+    }
+    private int resolvePaodekuaiRoundCount(int id) {
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1 ||
+                id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1 ||
+                id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1) return 1;
+        return 8;
     }
     private int resolveWaihuziBaseScore(int id) {
         if (id == NiuMaConstants.DISTRICT_WAIHUZI_B1_R8) return 1;
@@ -2374,6 +2500,13 @@ public class GameServiceImpl implements IGameService {
         if (id == NiuMaConstants.DISTRICT_DOU_DI_ZHU_B2_R8) return 2;
         if (id == NiuMaConstants.DISTRICT_DOU_DI_ZHU_B5_R8) return 5;
         return 10;
+    }
+
+    private int resolveGuandanBaseScore(int id) {
+        if (id == NiuMaConstants.DISTRICT_GUAN_DAN_MODERATE) return 5;
+        if (id == NiuMaConstants.DISTRICT_GUAN_DAN_ADVANCED) return 10;
+        if (id == NiuMaConstants.DISTRICT_GUAN_DAN_MASTER) return 20;
+        return 1;
     }
 
     @Override
@@ -2582,9 +2715,11 @@ public class GameServiceImpl implements IGameService {
             log.error("Parse message error: {}", ex.getMessage());
             return;
         }
-        if (msg.getMsgType().equals("CommandResult")) {
+        if ("CommandResult".equals(msg.getMsgType())) {
             MqCommandResult result = this.jsonUtils.convertToObj(json, MqCommandResult.class);
             handleCommandResult(result);
+        } else if ("WalletChangeEvent".equals(msg.getMsgType())) {
+            walletChangeEventProcessor.process(json);
         }
     }
 

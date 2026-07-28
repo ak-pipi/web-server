@@ -2,7 +2,6 @@ package com.niuma.admin.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.constant.NiuMaCodeEnum;
 import com.niuma.admin.dto.SafeBoxAppealDTO;
@@ -13,10 +12,12 @@ import com.niuma.admin.entity.*;
 import com.niuma.admin.enums.LedgerBizType;
 import com.niuma.admin.enums.LedgerChangeType;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.service.AgencyScopeSupport;
 import com.niuma.admin.service.ISafeBoxService;
 import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
+import com.niuma.common.exception.http.ForbiddenException;
 import com.niuma.common.page.PageResult;
 import com.niuma.common.utils.AesUtil;
 import com.niuma.common.utils.StringUtils;
@@ -27,9 +28,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * 虚拟保险箱服务实现
@@ -52,6 +56,9 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
 
     @Autowired
     private SupportTicketMapper supportTicketMapper;
+
+    @Autowired
+    private AgencyScopeSupport agencyScopeSupport;
 
     @Autowired
     private BCryptPasswordEncoder bCryptPasswordEncoder;
@@ -239,37 +246,56 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
     public PageResult<WalletLedger> queryPlayerLedger(String playerId, int pageNum, int pageSize) {
         LambdaQueryWrapper<WalletLedger> wrapper = Wrappers.lambdaQuery(WalletLedger.class);
         wrapper.eq(WalletLedger::getUserId, playerId)
-               .eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE)
-               .orderByDesc(WalletLedger::getId);
-        Page<WalletLedger> page = new Page<>(pageNum, pageSize);
-        Page<WalletLedger> result = walletLedgerMapper.selectPage(page, wrapper);
-        return new PageResult<>(result.getRecords(), (int) result.getCurrent(), (int) result.getTotal());
+               .eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE);
+        Integer total = walletLedgerMapper.selectCount(wrapper);
+        wrapper.orderByDesc(WalletLedger::getId)
+                .last(limitClause(pageNum, pageSize));
+        List<WalletLedger> records = walletLedgerMapper.selectList(wrapper);
+        return new PageResult<>(records, pageNum, total != null ? total : 0);
     }
 
     @Override
     public PageResult<WalletLedger> queryAdminLedger(SafeBoxQueryDTO dto) {
+        Optional<Set<String>> scopePlayerIds = agencyScopeSupport.currentScopePlayerIds();
+        int pageNum = dto != null && dto.getPageNum() != null && dto.getPageNum() > 0 ? dto.getPageNum() : 1;
+        int pageSize = dto != null && dto.getPageSize() != null && dto.getPageSize() > 0 ? dto.getPageSize() : 10;
+        String queryPlayerId = dto != null ? dto.getPlayerId() : null;
+        if (scopePlayerIds.isPresent() && StringUtils.isEmpty(queryPlayerId) && scopePlayerIds.get().isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), pageNum, 0);
+        }
+
         LambdaQueryWrapper<WalletLedger> wrapper = Wrappers.lambdaQuery(WalletLedger.class);
         wrapper.eq(WalletLedger::getWalletType, SAFE_BOX_WALLET_TYPE);
 
-        if (dto.getPlayerId() != null && !dto.getPlayerId().isEmpty()) {
-            wrapper.eq(WalletLedger::getUserId, dto.getPlayerId());
+        if (StringUtils.isNotEmpty(queryPlayerId)) {
+            if (scopePlayerIds.isPresent() && !scopePlayerIds.get().contains(queryPlayerId)) {
+                throw new ForbiddenException("不能查看当前代理线路外的保险箱流水");
+            }
+            wrapper.eq(WalletLedger::getUserId, queryPlayerId);
+        } else if (scopePlayerIds.isPresent()) {
+            wrapper.in(WalletLedger::getUserId, scopePlayerIds.get());
         }
-        if (dto.getActionType() != null && !dto.getActionType().isEmpty()) {
+        if (dto != null && StringUtils.isNotEmpty(dto.getActionType())) {
             String bizType = "deposit".equals(dto.getActionType())
                     ? LedgerBizType.SAFE_DEPOSIT.getCode() : LedgerBizType.SAFE_WITHDRAW.getCode();
             wrapper.eq(WalletLedger::getBizType, bizType);
         }
-        if (dto.getStartTime() != null && !dto.getStartTime().isEmpty()) {
+        if (dto != null && StringUtils.isNotEmpty(dto.getStartTime())) {
             wrapper.ge(WalletLedger::getCreateTime, dto.getStartTime());
         }
-        if (dto.getEndTime() != null && !dto.getEndTime().isEmpty()) {
+        if (dto != null && StringUtils.isNotEmpty(dto.getEndTime())) {
             wrapper.le(WalletLedger::getCreateTime, dto.getEndTime());
         }
-        wrapper.orderByDesc(WalletLedger::getId);
+        Integer total = walletLedgerMapper.selectCount(wrapper);
+        wrapper.orderByDesc(WalletLedger::getId)
+                .last(limitClause(pageNum, pageSize));
+        List<WalletLedger> records = walletLedgerMapper.selectList(wrapper);
+        return new PageResult<>(records, pageNum, total != null ? total : 0);
+    }
 
-        Page<WalletLedger> page = new Page<>(dto.getPageNum(), dto.getPageSize());
-        Page<WalletLedger> result = walletLedgerMapper.selectPage(page, wrapper);
-        return new PageResult<>(result.getRecords(), (int) result.getCurrent(), (int) result.getTotal());
+    private String limitClause(int pageNum, int pageSize) {
+        int offset = Math.max(0, (pageNum - 1) * pageSize);
+        return "LIMIT " + offset + ", " + pageSize;
     }
 
     // ==================== 异常检测 ====================
@@ -277,6 +303,20 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
     @Override
     public AjaxResult detectAbnormalRecords(String playerId) {
         Map<String, Object> detectionResult = new HashMap<>();
+        Optional<Set<String>> scopePlayerIds = agencyScopeSupport.currentScopePlayerIds();
+        if (scopePlayerIds.isPresent() && StringUtils.isNotEmpty(playerId) && !scopePlayerIds.get().contains(playerId)) {
+            throw new ForbiddenException("不能检测当前代理线路外的保险箱记录");
+        }
+        if (scopePlayerIds.isPresent() && StringUtils.isEmpty(playerId) && scopePlayerIds.get().isEmpty()) {
+            detectionResult.put("largeAmountRecords", 0);
+            detectionResult.put("frequentOperationPlayers", 0);
+            detectionResult.put("abnormalTimeRecords", 0);
+            detectionResult.put("hasAbnormal", false);
+            detectionResult.put("checkTime", LocalDateTime.now().toString());
+            AjaxResult result = AjaxResult.successEx();
+            result.putAll(detectionResult);
+            return result;
+        }
 
         // 规则1：短时间大额存取（单次 > 50000 且 10分钟内多次操作）
         LambdaQueryWrapper<WalletLedger> largeAmountWrapper = Wrappers.lambdaQuery(WalletLedger.class);
@@ -284,6 +324,8 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
                          .ge(WalletLedger::getChangeAmount, 50000L);
         if (playerId != null && !playerId.isEmpty()) {
             largeAmountWrapper.eq(WalletLedger::getUserId, playerId);
+        } else if (scopePlayerIds.isPresent()) {
+            largeAmountWrapper.in(WalletLedger::getUserId, scopePlayerIds.get());
         }
         List<WalletLedger> largeRecords = walletLedgerMapper.selectList(largeAmountWrapper);
         detectionResult.put("largeAmountRecords", largeRecords.size());
@@ -295,6 +337,8 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
                       .ge(WalletLedger::getCreateTime, oneHourAgo);
         if (playerId != null && !playerId.isEmpty()) {
             frequentWrapper.eq(WalletLedger::getUserId, playerId);
+        } else if (scopePlayerIds.isPresent()) {
+            frequentWrapper.in(WalletLedger::getUserId, scopePlayerIds.get());
         }
         List<WalletLedger> recentRecords = walletLedgerMapper.selectList(frequentWrapper);
         
@@ -312,6 +356,8 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
                           .apply("HOUR(create_time) BETWEEN 2 AND 5");
         if (playerId != null && !playerId.isEmpty()) {
             abnormalTimeWrapper.eq(WalletLedger::getUserId, playerId);
+        } else if (scopePlayerIds.isPresent()) {
+            abnormalTimeWrapper.in(WalletLedger::getUserId, scopePlayerIds.get());
         }
         List<WalletLedger> abnormalTimeRecords = walletLedgerMapper.selectList(abnormalTimeWrapper);
         detectionResult.put("abnormalTimeRecords", abnormalTimeRecords.size());

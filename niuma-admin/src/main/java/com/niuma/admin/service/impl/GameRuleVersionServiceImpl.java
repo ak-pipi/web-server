@@ -391,6 +391,7 @@ public class GameRuleVersionServiceImpl implements IGameRuleVersionService {
                                String targetId, String beforeValue, String afterValue, String remark) {
         AdminAuditLog auditLog = new AdminAuditLog();
         auditLog.setAdminId(Long.valueOf(adminId));
+        auditLog.setModule("GAME_RULE_VERSION");
         auditLog.setAction(action);
         auditLog.setTargetType(targetType);
         auditLog.setTargetId(targetId);

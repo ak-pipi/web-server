@@ -3,6 +3,7 @@ package com.niuma.admin.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.entity.ReconciliationReport;
+import com.niuma.admin.enums.LedgerBizType;
 import com.niuma.admin.mapper.ReconciliationReportMapper;
 import com.niuma.admin.mapper.WalletLedgerMapper;
 import com.niuma.admin.service.IAlertService;
@@ -45,13 +46,13 @@ public class ReconciliationServiceImpl extends ServiceImpl<ReconciliationReportM
         //   WHERE DATE(created_at) = ? AND deleted = 0
         //   GROUP BY biz_type
 
-        BigDecimal gameWinTotal = queryLedgerSumByBizType(date, "GAME_WIN");
-        BigDecimal gameLoseTotal = queryLedgerSumByBizType(date, "GAME_LOSE");
-        BigDecimal roomFeeTotal = queryLedgerSumByBizType(date, "ROOM_FEE");
-        BigDecimal activityRewardTotal = queryLedgerSumByBizType(date, "ACTIVITY_REWARD");
-        BigDecimal safeboxInTotal = queryLedgerSumByBizType(date, "SAFEBOX_IN");
-        BigDecimal safeboxOutTotal = queryLedgerSumByBizType(date, "SAFEBOX_OUT");
-        BigDecimal adminAdjustTotal = queryLedgerSumByBizType(date, "ADMIN_ADJUST");
+        BigDecimal gameWinTotal = queryLedgerPositiveSumByBizType(date, LedgerBizType.GAME_SETTLE.getCode());
+        BigDecimal gameLoseTotal = queryLedgerNegativeSumByBizType(date, LedgerBizType.GAME_SETTLE.getCode());
+        BigDecimal roomFeeTotal = queryLedgerSumByBizType(date, LedgerBizType.ROOM_FEE.getCode());
+        BigDecimal activityRewardTotal = queryLedgerSumByBizType(date, LedgerBizType.ACTIVITY_REWARD.getCode());
+        BigDecimal safeboxInTotal = queryLedgerSumByBizType(date, LedgerBizType.SAFE_DEPOSIT.getCode());
+        BigDecimal safeboxOutTotal = queryLedgerSumByBizType(date, LedgerBizType.SAFE_WITHDRAW.getCode());
+        BigDecimal adminAdjustTotal = queryLedgerSumByBizType(date, LedgerBizType.ADMIN_ADJUST.getCode());
         BigDecimal compensationTotal = queryLedgerSumByBizType(date, "COMPENSATION");
 
         report.setGameWinTotal(gameWinTotal);
@@ -147,6 +148,16 @@ public class ReconciliationServiceImpl extends ServiceImpl<ReconciliationReportM
      */
     protected BigDecimal queryLedgerSumByBizType(LocalDate date, String bizType) {
         BigDecimal result = walletLedgerMapper.sumByBizType(date, bizType);
+        return result != null ? result : BigDecimal.ZERO;
+    }
+
+    protected BigDecimal queryLedgerPositiveSumByBizType(LocalDate date, String bizType) {
+        BigDecimal result = walletLedgerMapper.sumPositiveByBizType(date, bizType);
+        return result != null ? result : BigDecimal.ZERO;
+    }
+
+    protected BigDecimal queryLedgerNegativeSumByBizType(LocalDate date, String bizType) {
+        BigDecimal result = walletLedgerMapper.sumNegativeByBizType(date, bizType);
         return result != null ? result : BigDecimal.ZERO;
     }
 }

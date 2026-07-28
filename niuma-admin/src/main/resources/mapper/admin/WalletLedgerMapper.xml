@@ -29,6 +29,20 @@
           AND `biz_type` = #{bizType}
     </select>
 
+    <select id="sumPositiveByBizType" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(change_amount), 0) FROM `wallet_ledger`
+        WHERE DATE(create_time) = #{date}
+          AND `biz_type` = #{bizType}
+          AND `change_amount` &gt; 0
+    </select>
+
+    <select id="sumNegativeByBizType" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(change_amount), 0) FROM `wallet_ledger`
+        WHERE DATE(create_time) = #{date}
+          AND `biz_type` = #{bizType}
+          AND `change_amount` &lt; 0
+    </select>
+
     <select id="sumByBizTypeAndTimeRange" resultType="java.math.BigDecimal">
         SELECT COALESCE(SUM(change_amount), 0) FROM `wallet_ledger`
         WHERE `create_time` >= #{startTime}

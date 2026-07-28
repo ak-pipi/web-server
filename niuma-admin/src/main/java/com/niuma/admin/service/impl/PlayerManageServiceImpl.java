@@ -9,11 +9,15 @@ import com.niuma.admin.dto.PlayerQueryDTO;
 import com.niuma.admin.entity.*;
 import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.service.AgencyScopeSupport;
 import com.niuma.admin.service.IPlayerManageService;
 import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
+import com.niuma.common.exception.http.ForbiddenException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.SecurityUtils;
+import com.niuma.common.utils.StringUtils;
 import com.niuma.common.utils.ip.IpUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,9 +28,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * 后台玩家管理增强服务实现
@@ -53,14 +60,26 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
     @Autowired
     private IWalletService walletService;
 
+    @Autowired
+    private AgencyScopeSupport agencyScopeSupport;
+
     // ==================== 列表查询 ====================
 
     @Override
     public PageResult<Player> queryPlayers(PlayerQueryDTO dto) {
         LambdaQueryWrapper<Player> wrapper = Wrappers.lambdaQuery(Player.class);
+        Optional<Set<String>> scopePlayerIds = agencyScopeSupport.currentScopePlayerIds();
 
-        if (dto.getPlayerId() != null && !dto.getPlayerId().isEmpty()) {
+        if (StringUtils.isNotEmpty(dto.getPlayerId())) {
+            if (scopePlayerIds.isPresent() && !scopePlayerIds.get().contains(dto.getPlayerId())) {
+                return new PageResult<>(Collections.emptyList(), pageNum(dto), 0);
+            }
             wrapper.eq(Player::getId, dto.getPlayerId());
+        } else if (scopePlayerIds.isPresent()) {
+            if (scopePlayerIds.get().isEmpty()) {
+                return new PageResult<>(Collections.emptyList(), pageNum(dto), 0);
+            }
+            wrapper.in(Player::getId, scopePlayerIds.get());
         }
         if (dto.getKeyword() != null && !dto.getKeyword().isEmpty()) {
             wrapper.and(w -> w.like(Player::getName, dto.getKeyword())
@@ -328,7 +347,14 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
         if (player == null) {
             throw new BadRequestException("玩家不存在: " + playerId);
         }
+        if (!agencyScopeSupport.canAccessPlayer(playerId)) {
+            throw new ForbiddenException("不能访问当前代理线路外的玩家数据");
+        }
         return player;
+    }
+
+    private int pageNum(PlayerQueryDTO dto) {
+        return dto != null && dto.getPageNum() != null && dto.getPageNum() > 0 ? dto.getPageNum() : 1;
     }
 
     /**
@@ -469,7 +495,9 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
     private void writeAuditLog(String operator, String action, String targetId,
                                String reason, String remark, int status) {
         AdminAuditLog auditLog = new AdminAuditLog();
+        auditLog.setAdminId(SecurityUtils.getUserId());
         auditLog.setAdminName(operator);
+        auditLog.setModule("PLAYER");
         auditLog.setAction(action);
         auditLog.setTargetType("PLAYER");
         auditLog.setTargetId(targetId);

@@ -31,6 +31,21 @@ public class PlayerDTO extends PlayerBaseDTO {
     private String agencyId;
 
     /**
+     * 金币余额
+     */
+    private Long goldBalance;
+
+    /**
+     * 保险箱余额
+     */
+    private Long depositBalance;
+
+    /**
+     * 钻石余额
+     */
+    private Long diamondBalance;
+
+    /**
      * 代理玩家，格式："玩家昵称(玩家id)"
      */
     private String agency;

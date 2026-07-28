@@ -9,13 +9,14 @@ import com.niuma.admin.dto.JuniorPlayerDTO;
 import com.niuma.admin.dto.RewardDTO;
 import com.niuma.admin.entity.Agency;
 import com.niuma.admin.entity.AgencyCollect;
-import com.niuma.admin.entity.Capital;
 import com.niuma.admin.entity.Player;
+import com.niuma.admin.enums.LedgerBizType;
+import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.AgencyCollectMapper;
 import com.niuma.admin.mapper.AgencyMapper;
-import com.niuma.admin.mapper.CapitalMapper;
 import com.niuma.admin.mapper.PlayerMapper;
 import com.niuma.admin.service.IAgencyService;
+import com.niuma.admin.service.IWalletService;
 import com.niuma.common.constant.ResultCodeEnum;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.core.domain.model.LoginPlayer;
@@ -46,10 +47,10 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
     private PlayerMapper playerMapper;
 
     @Autowired
-    private CapitalMapper capitalMapper;
+    private AgencyCollectMapper agencyCollectMapper;
 
     @Autowired
-    private AgencyCollectMapper agencyCollectMapper;
+    private IWalletService walletService;
 
     @Override
     @Transactional
@@ -188,12 +189,8 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
             ids.add(pair.getValue1());
             total += pair.getValue2();
         }
-        Capital capital = this.capitalMapper.selectById(player.getId());
-        Long deposit = capital.getDeposit();
-        deposit += total;
-        Integer count = this.capitalMapper.setCapital(player.getId(), null, deposit, null, capital.getVersion());
-        if ((count == null) || (count < 1))
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
+        walletService.increase(player.getId(), WalletType.DEPOSIT.getCode(), total,
+                LedgerBizType.INVITE_REWARD.getCode(), null, "领取代理奖励");
         // 添加领取记录
         AgencyCollect entity = new AgencyCollect();
         entity.setPlayerId(player.getId());
@@ -205,7 +202,7 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
 
         AjaxResult ajax = AjaxResult.successEx();
         ajax.put("amount", total);
-        ajax.put("deposit", deposit);
+        ajax.put("deposit", walletService.getBalance(player.getId(), WalletType.DEPOSIT.getCode()));
         total = this.baseMapper.getTotalReward1(player.getId());
         ajax.put("totalReward", total);
         return ajax;

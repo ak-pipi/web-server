@@ -6,8 +6,11 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.constant.NiuMaCodeEnum;
 import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.*;
+import com.niuma.admin.enums.LedgerBizType;
+import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.*;
 import com.niuma.admin.service.ICapitalService;
+import com.niuma.admin.service.IWalletService;
 import com.niuma.common.constant.ResultCodeEnum;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.core.domain.model.LoginPlayer;
@@ -46,6 +49,9 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
 
     @Autowired
     private BCryptPasswordEncoder bCryptPasswordEncoder;
+
+    @Autowired
+    private IWalletService walletService;
 
     @Override
     public AjaxResult getCapital() {
@@ -124,6 +130,7 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AjaxResult debitOrDeposit(AmountDTO dto, boolean isDebit) {
         Long amount = dto.getAmount();
         if (amount == 0 || amount < 0)
@@ -136,31 +143,20 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
             // 取出需要验证密码
             this.checkPassword(dto.getPassword(), entity.getPassword());
         }
-        Long gold = entity.getGold();
-        if (gold == null)
-            gold = 0L;
-        Long deposit = entity.getDeposit();
-        if (deposit == null)
-            deposit = 0L;
         if (isDebit) {
-            if (deposit < amount)
-                throw new ForbiddenException(NiuMaCodeEnum.DEPOSIT_BALANCE_ERROR);
-            gold += amount;
-            deposit -= amount;
+            walletService.decrease(player.getId(), WalletType.DEPOSIT.getCode(), amount,
+                    LedgerBizType.SAFE_WITHDRAW.getCode(), null, "保险箱取出");
+            walletService.increase(player.getId(), WalletType.GOLD.getCode(), amount,
+                    LedgerBizType.SAFE_WITHDRAW.getCode(), null, "保险箱取出");
         } else {
-            if (gold < amount)
-                throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR);
-            gold -= amount;
-            deposit += amount;
-        }
-        Integer count = this.baseMapper.setCapital(player.getId(), gold, deposit, null, entity.getVersion());
-        if ((count == null) || count.equals(0)) {
-            // 更新失败，返回系统忙
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
+            walletService.decrease(player.getId(), WalletType.GOLD.getCode(), amount,
+                    LedgerBizType.SAFE_DEPOSIT.getCode(), null, "存入保险箱");
+            walletService.increase(player.getId(), WalletType.DEPOSIT.getCode(), amount,
+                    LedgerBizType.SAFE_DEPOSIT.getCode(), null, "存入保险箱");
         }
         AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("gold", gold);
-        ajax.put("deposit", deposit);
+        ajax.put("gold", walletService.getBalance(player.getId(), WalletType.GOLD.getCode()));
+        ajax.put("deposit", walletService.getBalance(player.getId(), WalletType.DEPOSIT.getCode()));
         return ajax;
     }
 
@@ -229,15 +225,8 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
         long remainder = dto.getAmount() % 50L;
         if ((remainder != 0L) || (dto.getAmount() < 50L))
             throw new BadRequestException(NiuMaCodeEnum.EXCHANGE_AMOUNT_ERROR);
-        Long deposit = entity.getDeposit();
-        if (deposit == null)
-            deposit = 0L;
-        if (deposit < dto.getAmount())
-            throw new ForbiddenException(NiuMaCodeEnum.DEPOSIT_BALANCE_ERROR);
-        deposit -= dto.getAmount();
-        Integer count = this.baseMapper.setCapital(player.getId(), null, deposit, null, entity.getVersion());
-        if ((count == null) || (count < 1))
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
+        walletService.decrease(player.getId(), WalletType.DEPOSIT.getCode(), dto.getAmount(),
+                LedgerBizType.WITHDRAW.getCode(), null, "申请提现兑换");
         // 添加兑换记录
         Exchange tmp = new Exchange();
         tmp.setPlayerId(player.getId());
@@ -254,7 +243,7 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
         tmp.setApplyTime(LocalDateTime.now());
         this.exchangeMapper.insert(tmp);
         AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("deposit", deposit);
+        ajax.put("deposit", walletService.getBalance(player.getId(), WalletType.DEPOSIT.getCode()));
         return ajax;
     }
 
@@ -292,26 +281,15 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
             throw new ForbiddenException(NiuMaCodeEnum.TRANSFER_ERROR.getCode(), "Can't transfer to yourself");
         Capital capital1 = this.getCapital(player.getId());
         this.checkPassword(dto.getPassword(), capital1.getPassword());
-        Long deposit = capital1.getDeposit();
-        if (deposit == null)
-            deposit = 0L;
-        if (deposit < dto.getAmount())
-            throw new ForbiddenException(NiuMaCodeEnum.DEPOSIT_BALANCE_ERROR);
         Player dstPlayer = this.playerMapper.selectById(dto.getPlayerId());
         if (dstPlayer == null)
             throw new NotFoundException(NiuMaCodeEnum.PLAYER_NOT_EXIST);
         if (CommonUtils.predicate(dstPlayer.getBanned()) || CommonUtils.predicate(dstPlayer.getDelFlag()))
             throw new NotFoundException(NiuMaCodeEnum.PLAYER_STATUS_ERROR);
-        deposit -= dto.getAmount();
-        Integer count = this.baseMapper.setCapital(player.getId(), null, deposit, null, capital1.getVersion());
-        if ((count == null) || (count < 1))
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
-        this.initCapital1(dto.getPlayerId());
-        Capital capital2 = this.getCapital(dto.getPlayerId());
-        deposit = capital2.getDeposit() + dto.getAmount();
-        this.baseMapper.setCapital(dto.getPlayerId(), null, deposit, null, capital2.getVersion());
-        if ((count == null) || (count < 1))
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
+        walletService.decrease(player.getId(), WalletType.DEPOSIT.getCode(), dto.getAmount(),
+                LedgerBizType.TRANSFER_OUT.getCode(), null, "转账给玩家:" + dto.getPlayerId());
+        walletService.increase(dto.getPlayerId(), WalletType.DEPOSIT.getCode(), dto.getAmount(),
+                LedgerBizType.TRANSFER_IN.getCode(), null, "收到玩家转账:" + player.getId());
         // 添加转账记录
         Transfer tmp = new Transfer();
         tmp.setSrcPlayerId(player.getId());
@@ -321,7 +299,8 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
         this.transferMapper.insert(tmp);
 
         AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("deposit", deposit);
+        ajax.put("deposit", walletService.getBalance(player.getId(), WalletType.DEPOSIT.getCode()));
+        ajax.put("dstDeposit", walletService.getBalance(dto.getPlayerId(), WalletType.DEPOSIT.getCode()));
         Long accAmount = this.transferMapper.getAccAmount(player.getId());
         if (accAmount == null)
             accAmount = 0L;
@@ -390,15 +369,10 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
         Long[] diamonds = new Long[] { 50L, 100L, 200L, 300L, 400L, 500L };
         Long[] golds = new Long[] { 1250L, 2400L, 4600L, 6600L, 8400L, 10000L };
         index -= 1;
-        Capital entity = this.getCapital(player.getId());
-        Long gold = entity.getGold();
-        if (gold < golds[index])
-            throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR);
-        gold -= golds[index];
-        Long diamond = entity.getDiamond() + diamonds[index];
-        Integer count = this.baseMapper.setCapital(player.getId(), gold, null, diamond, entity.getVersion());
-        if ((count == null) || (count < 1))
-            throw new InternalServerException(ResultCodeEnum.SERVICE_UNAVAILABLE);
+        walletService.decrease(player.getId(), WalletType.GOLD.getCode(), golds[index],
+                LedgerBizType.BUY_DIAMOND.getCode(), null, "购买钻石");
+        walletService.increase(player.getId(), WalletType.DIAMOND.getCode(), diamonds[index],
+                LedgerBizType.BUY_DIAMOND.getCode(), null, "购买钻石");
         // 添加购买钻石记录
         BuyDiamond tmp = new BuyDiamond();
         tmp.setPlayerId(player.getId());
@@ -408,8 +382,8 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
         this.buyDiamondMapper.insert(tmp);
 
         AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("gold", gold);
-        ajax.put("diamond", diamond);
+        ajax.put("gold", walletService.getBalance(player.getId(), WalletType.GOLD.getCode()));
+        ajax.put("diamond", walletService.getBalance(player.getId(), WalletType.DIAMOND.getCode()));
         return ajax;
     }
 }

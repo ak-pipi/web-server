@@ -2,7 +2,6 @@ package com.niuma.admin.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.dto.LedgerQueryDTO;
 import com.niuma.admin.dto.WalletAdjustDTO;
@@ -11,10 +10,15 @@ import com.niuma.admin.enums.LedgerBizType;
 import com.niuma.admin.enums.LedgerChangeType;
 import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.service.AgencyScopeSupport;
+import com.niuma.admin.rabbit.WalletSyncPublisher;
 import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.exception.http.BadRequestException;
+import com.niuma.common.exception.http.ForbiddenException;
 import com.niuma.common.page.PageResult;
+import com.niuma.common.utils.SecurityUtils;
+import com.niuma.common.utils.StringUtils;
 import com.niuma.common.utils.ip.IpUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,8 +26,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -44,6 +52,12 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
 
     @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
+
+    @Autowired
+    private WalletSyncPublisher walletSyncPublisher;
+
+    @Autowired
+    private AgencyScopeSupport agencyScopeSupport;
 
     // ==================== 余额查询 ====================
 
@@ -99,8 +113,11 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
             throw new BadRequestException("增加金额必须大于0");
         }
         doUpdateBalance(playerId, walletType, amount, true);
-        return writeLedger(playerId, walletType, amount,
+        Long ledgerId = writeLedger(playerId, walletType, amount,
                 LedgerChangeType.INCREASE.getCode(), bizType, refBizNo, remark);
+        walletSyncPublisher.publishAfterCommit(playerId, walletType, amount,
+                getBalance(playerId, walletType), bizType, refBizNo, ledgerId);
+        return ledgerId;
     }
 
     @Override
@@ -115,8 +132,11 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
             throw new BadRequestException("余额不足, 当前余额: " + current + ", 需要扣除: " + amount);
         }
         doUpdateBalance(playerId, walletType, amount, false);
-        return writeLedger(playerId, walletType, amount,
+        Long ledgerId = writeLedger(playerId, walletType, amount,
                 LedgerChangeType.DECREASE.getCode(), bizType, refBizNo, remark);
+        walletSyncPublisher.publishAfterCommit(playerId, walletType, -amount,
+                getBalance(playerId, walletType), bizType, refBizNo, ledgerId);
+        return ledgerId;
     }
 
     /**
@@ -167,11 +187,17 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
         WalletLedger ledger = new WalletLedger();
         ledger.setUserId(playerId);
         ledger.setWalletType(walletType);
-        ledger.setChangeAmount(amount > 0 ? amount : -amount);
+        long absAmount = Math.abs(amount);
+        if (LedgerChangeType.DECREASE.getCode().equals(changeType))
+            ledger.setChangeAmount(-absAmount);
+        else
+            ledger.setChangeAmount(absAmount);
         ledger.setBalanceAfter(getBalance(playerId, walletType));
         ledger.setBizType(bizType);
         ledger.setBizId(refBizNo);
-        ledger.setRefNo(UUID.randomUUID().toString().replace("-", ""));
+        ledger.setRefNo(StringUtils.isNotEmpty(refBizNo) && refBizNo.startsWith("cpp:")
+                ? refBizNo
+                : UUID.randomUUID().toString().replace("-", ""));
         ledger.setRemark(remark);
         ledger.setCreateTime(LocalDateTime.now());
         walletLedgerMapper.insert(ledger);
@@ -183,52 +209,85 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AjaxResult adjust(WalletAdjustDTO dto, String operator) {
-        String playerId = dto.getPlayerId();
-        String walletType = dto.getWalletType();
+        return transferAdjust(dto, operator, Agency.ROOT_PLAYER_ID);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AjaxResult transferAdjust(WalletAdjustDTO dto, String operator, String counterpartyPlayerId) {
+        String targetPlayerId = dto.getPlayerId();
+        String walletType = StringUtils.isNotEmpty(dto.getWalletType()) ? dto.getWalletType() : WalletType.GOLD.getCode();
         Long amount = dto.getAmount();
         String reason = dto.getReason();
 
-        // 校验钱包类型
-        WalletType type = WalletType.fromCode(walletType);
-
-        // 大额调整检查阈值：金币/保险箱超过100000需要二级审批
-        boolean needApproval = (type == WalletType.GOLD || type == WalletType.DEPOSIT)
-                && Math.abs(amount) >= 100000L;
-
-        if (needApproval) {
-            log.warn("[钱包] 大额调整请求: 玩家={}, 类型={}, 金额={}, 操作人={}, 需二级审批",
-                    playerId, walletType, amount, operator);
-            // TODO: 后续接入审批流程，当前先记录日志后继续执行
+        if (StringUtils.isEmpty(targetPlayerId)) {
+            throw new BadRequestException("玩家ID不能为空");
         }
-
-        Long beforeAmount = getBalance(playerId, walletType);
-
-        // 执行增减操作
-        Long ledgerId;
-        if (amount > 0) {
-            ledgerId = increase(playerId, walletType, amount,
-                    LedgerBizType.ADMIN_ADJUST.getCode(), dto.getRefBizNo(), reason);
-        } else if (amount < 0) {
-            ledgerId = decrease(playerId, walletType, Math.abs(amount),
-                    LedgerBizType.ADMIN_ADJUST.getCode(), dto.getRefBizNo(),
-                    "后台人工减少 | 原因: " + reason);
-        } else {
+        if (StringUtils.isEmpty(counterpartyPlayerId)) {
+            throw new BadRequestException("资金方玩家ID不能为空");
+        }
+        if (targetPlayerId.equals(counterpartyPlayerId)) {
+            throw new BadRequestException("不能调整资金方自身积分");
+        }
+        if (amount == null || amount == 0L || amount == Long.MIN_VALUE) {
             throw new BadRequestException("调整金额不能为0");
         }
 
-        Long afterAmount = getBalance(playerId, walletType);
+        WalletType type = WalletType.fromCode(walletType);
+        if (type != WalletType.GOLD && type != WalletType.DEPOSIT) {
+            throw new BadRequestException("当前仅支持金币和保险箱积分的守恒调整");
+        }
 
-        // 写入审计日志
-        writeAuditLog(operator, playerId, walletType, amount, beforeAmount,
-                afterAmount, reason, needApproval);
+        long absAmount = Math.abs(amount);
+        boolean targetIncrease = amount > 0;
+        String refNo = StringUtils.isNotEmpty(dto.getRefBizNo())
+                ? dto.getRefBizNo()
+                : "ADMIN_TRANSFER_" + UUID.randomUUID().toString().replace("-", "");
+        String targetRemark = String.format("后台守恒调整 | %s | 对方:%s | 原因:%s",
+                targetIncrease ? "转入" : "转出", counterpartyPlayerId, reason);
+        String counterpartyRemark = String.format("后台守恒调整 | %s | 对方:%s | 原因:%s",
+                targetIncrease ? "转出" : "转入", targetPlayerId, reason);
+
+        boolean needApproval = Math.abs(amount) >= 100000L;
+        if (needApproval) {
+            log.warn("[钱包] 大额守恒调整请求: 玩家={}, 类型={}, 金额={}, 资金方={}, 操作人={}, 需二级审批",
+                    targetPlayerId, walletType, amount, counterpartyPlayerId, operator);
+        }
+
+        Long targetBefore = getBalance(targetPlayerId, walletType);
+        Long counterpartyBefore = getBalance(counterpartyPlayerId, walletType);
+
+        Long targetLedgerId;
+        Long counterpartyLedgerId;
+        if (targetIncrease) {
+            counterpartyLedgerId = decrease(counterpartyPlayerId, walletType, absAmount,
+                    LedgerBizType.ADMIN_ADJUST.getCode(), refNo + ":OUT", counterpartyRemark);
+            targetLedgerId = increase(targetPlayerId, walletType, absAmount,
+                    LedgerBizType.ADMIN_ADJUST.getCode(), refNo + ":IN", targetRemark);
+        } else {
+            targetLedgerId = decrease(targetPlayerId, walletType, absAmount,
+                    LedgerBizType.ADMIN_ADJUST.getCode(), refNo + ":OUT", targetRemark);
+            counterpartyLedgerId = increase(counterpartyPlayerId, walletType, absAmount,
+                    LedgerBizType.ADMIN_ADJUST.getCode(), refNo + ":IN", counterpartyRemark);
+        }
+
+        Long targetAfter = getBalance(targetPlayerId, walletType);
+        Long counterpartyAfter = getBalance(counterpartyPlayerId, walletType);
+
+        writeAuditLog(operator, targetPlayerId, walletType, amount, targetBefore,
+                targetAfter, reason + " | 资金方:" + counterpartyPlayerId, needApproval);
 
         AjaxResult result = AjaxResult.successEx();
-        result.put("ledgerId", ledgerId);
-        result.put("beforeAmount", beforeAmount);
-        result.put("afterAmount", afterAmount);
+        result.put("ledgerId", targetLedgerId);
+        result.put("counterpartyLedgerId", counterpartyLedgerId);
+        result.put("counterpartyPlayerId", counterpartyPlayerId);
+        result.put("beforeAmount", targetBefore);
+        result.put("afterAmount", targetAfter);
+        result.put("counterpartyBeforeAmount", counterpartyBefore);
+        result.put("counterpartyAfterAmount", counterpartyAfter);
         if (needApproval) {
             result.put("needApproval", true);
-            result.put("msg", "大额调整已执行并记录, 建议提交二级审批确认");
+            result.put("msg", "大额守恒调整已执行并记录, 建议提交二级审批确认");
         }
         return result;
     }
@@ -241,7 +300,9 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
                                Long beforeAmount, Long afterAmount,
                                String remark, boolean needApproval) {
         AdminAuditLog auditLog = new AdminAuditLog();
+        auditLog.setAdminId(SecurityUtils.getUserId());
         auditLog.setAdminName(operator);
+        auditLog.setModule("WALLET");
         auditLog.setAction("WALLET_ADJUST");
         auditLog.setTargetType(targetType);
         auditLog.setTargetId(targetUserId);
@@ -259,18 +320,43 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     // ==================== 流水查询 ====================
 
     @Override
+    public void assertCurrentUserCanAccessPlayer(String playerId) {
+        agencyScopeSupport.ensureCanAccessPlayer(playerId);
+    }
+
+    @Override
     public PageResult<WalletLedger> queryLedger(LedgerQueryDTO dto) {
+        Optional<Set<String>> scopePlayerIds = agencyScopeSupport.currentScopePlayerIds();
+        if (scopePlayerIds.isPresent() && StringUtils.isEmpty(dto.getPlayerId()) && scopePlayerIds.get().isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), pageNum(dto), 0);
+        }
+
         LambdaQueryWrapper<WalletLedger> wrapper = buildLedgerQuery(dto);
-        Page<WalletLedger> page = new Page<>(dto.getPageNum(), dto.getPageSize());
-        Page<WalletLedger> result = walletLedgerMapper.selectPage(page, wrapper);
-        return new PageResult<>(result.getRecords(), (int) result.getCurrent(), (int) result.getTotal());
+        applyWalletLedgerScope(wrapper, dto, scopePlayerIds);
+        Integer total = walletLedgerMapper.selectCount(wrapper);
+        int pageNum = pageNum(dto);
+        int pageSize = pageSize(dto);
+        wrapper.orderByDesc(WalletLedger::getId)
+                .last(limitClause(pageNum, pageSize));
+        List<WalletLedger> records = walletLedgerMapper.selectList(wrapper);
+        return new PageResult<>(records, pageNum, total != null ? total : 0);
     }
 
     @Override
     public PageResult<?> queryRoomFeeLedger(LedgerQueryDTO dto) {
+        Optional<Set<String>> scopePlayerIds = agencyScopeSupport.currentScopePlayerIds();
+        if (scopePlayerIds.isPresent() && StringUtils.isEmpty(dto.getPlayerId()) && scopePlayerIds.get().isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), pageNum(dto), 0);
+        }
+
         LambdaQueryWrapper<RoomFeeLedger> wrapper = Wrappers.lambdaQuery(RoomFeeLedger.class);
         if (dto.getPlayerId() != null && !dto.getPlayerId().isEmpty()) {
+            if (scopePlayerIds.isPresent() && !scopePlayerIds.get().contains(dto.getPlayerId())) {
+                throw new ForbiddenException("不能查看当前代理线路外的房费流水");
+            }
             wrapper.eq(RoomFeeLedger::getUserId, dto.getPlayerId());
+        } else if (scopePlayerIds.isPresent()) {
+            wrapper.in(RoomFeeLedger::getUserId, scopePlayerIds.get());
         }
         if (dto.getStartTime() != null && !dto.getStartTime().isEmpty()) {
             wrapper.ge(RoomFeeLedger::getCreateTime, dto.getStartTime());
@@ -278,10 +364,27 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
         if (dto.getEndTime() != null && !dto.getEndTime().isEmpty()) {
             wrapper.le(RoomFeeLedger::getCreateTime, dto.getEndTime());
         }
-        wrapper.orderByDesc(RoomFeeLedger::getId);
-        Page<RoomFeeLedger> page = new Page<>(dto.getPageNum(), dto.getPageSize());
-        Page<RoomFeeLedger> result = roomFeeLedgerMapper.selectPage(page, wrapper);
-        return new PageResult<>(result.getRecords(), (int) result.getCurrent(), (int) result.getTotal());
+        Integer total = roomFeeLedgerMapper.selectCount(wrapper);
+        int pageNum = pageNum(dto);
+        int pageSize = pageSize(dto);
+        wrapper.orderByDesc(RoomFeeLedger::getId)
+                .last(limitClause(pageNum, pageSize));
+        List<RoomFeeLedger> records = roomFeeLedgerMapper.selectList(wrapper);
+        return new PageResult<>(records, pageNum, total != null ? total : 0);
+    }
+
+    private void applyWalletLedgerScope(LambdaQueryWrapper<WalletLedger> wrapper, LedgerQueryDTO dto,
+                                        Optional<Set<String>> scopePlayerIds) {
+        if (!scopePlayerIds.isPresent()) {
+            return;
+        }
+        if (StringUtils.isNotEmpty(dto.getPlayerId())) {
+            if (!scopePlayerIds.get().contains(dto.getPlayerId())) {
+                throw new ForbiddenException("不能查看当前代理线路外的积分流水");
+            }
+            return;
+        }
+        wrapper.in(WalletLedger::getUserId, scopePlayerIds.get());
     }
 
     private LambdaQueryWrapper<WalletLedger> buildLedgerQuery(LedgerQueryDTO dto) {
@@ -305,7 +408,19 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
         if (dto.getEndTime() != null && !dto.getEndTime().isEmpty()) {
             wrapper.le(WalletLedger::getCreateTime, dto.getEndTime());
         }
-        wrapper.orderByDesc(WalletLedger::getId);
         return wrapper;
+    }
+
+    private int pageNum(LedgerQueryDTO dto) {
+        return dto != null && dto.getPageNum() != null && dto.getPageNum() > 0 ? dto.getPageNum() : 1;
+    }
+
+    private int pageSize(LedgerQueryDTO dto) {
+        return dto != null && dto.getPageSize() != null && dto.getPageSize() > 0 ? dto.getPageSize() : 10;
+    }
+
+    private String limitClause(int pageNum, int pageSize) {
+        int offset = Math.max(0, (pageNum - 1) * pageSize);
+        return "LIMIT " + offset + ", " + pageSize;
     }
 }

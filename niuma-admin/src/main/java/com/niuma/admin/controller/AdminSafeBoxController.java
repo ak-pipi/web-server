@@ -6,6 +6,7 @@ import com.niuma.admin.dto.SafeBoxQueryDTO;
 import com.niuma.admin.dto.SafeBoxWithdrawDTO;
 import com.niuma.admin.entity.WalletLedger;
 import com.niuma.admin.service.ISafeBoxService;
+import com.niuma.admin.service.IWalletService;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.core.domain.model.LoginPlayer;
 import com.niuma.common.page.PageResult;
@@ -24,12 +25,16 @@ public class AdminSafeBoxController {
     @Autowired
     private ISafeBoxService safeBoxService;
 
+    @Autowired
+    private IWalletService walletService;
+
     /**
      * 查询玩家保险箱余额
      */
     @PostMapping("/balance")
     @PreAuthorize("@ss.hasPermi('niuma:safebox:query')")
     public AjaxResult getBalance(@RequestBody com.niuma.admin.dto.WalletBalanceQueryDTO dto) {
+        walletService.assertCurrentUserCanAccessPlayer(dto.getPlayerId());
         return safeBoxService.getSafeBoxBalance(dto.getPlayerId());
     }
 
@@ -48,6 +53,7 @@ public class AdminSafeBoxController {
     @PostMapping("/abnormal/detect")
     @PreAuthorize("@ss.hasPermi('niuma:safebox:detect')")
     public AjaxResult detectAbnormal(@RequestParam(required = false) String playerId) {
+        walletService.assertCurrentUserCanAccessPlayer(playerId);
         return safeBoxService.detectAbnormalRecords(playerId);
     }
 }

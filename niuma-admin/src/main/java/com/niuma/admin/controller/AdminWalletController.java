@@ -3,6 +3,7 @@ package com.niuma.admin.controller;
 import com.niuma.admin.dto.LedgerQueryDTO;
 import com.niuma.admin.dto.WalletAdjustDTO;
 import com.niuma.admin.dto.WalletBalanceQueryDTO;
+import com.niuma.admin.entity.Agency;
 import com.niuma.admin.entity.RoomFeeLedger;
 import com.niuma.admin.entity.WalletLedger;
 import com.niuma.admin.service.IWalletService;
@@ -30,6 +31,7 @@ public class AdminWalletController {
     @PostMapping("/balance")
     @PreAuthorize("@ss.hasPermi('niuma:wallet:query')")
     public AjaxResult getBalances(@RequestBody WalletBalanceQueryDTO dto) {
+        walletService.assertCurrentUserCanAccessPlayer(dto.getPlayerId());
         return walletService.getBalances(dto.getPlayerId());
     }
 
@@ -40,6 +42,7 @@ public class AdminWalletController {
     @PreAuthorize("@ss.hasPermi('niuma:wallet:query')")
     public AjaxResult getBalance(@PathVariable String walletType,
                                  @RequestBody WalletBalanceQueryDTO dto) {
+        walletService.assertCurrentUserCanAccessPlayer(dto.getPlayerId());
         Long balance = walletService.getBalance(dto.getPlayerId(), walletType);
         AjaxResult result = AjaxResult.successEx();
         result.put("balance", balance);
@@ -70,7 +73,8 @@ public class AdminWalletController {
     @PostMapping("/adjust")
     @PreAuthorize("@ss.hasPermi('niuma:wallet:adjust')")
     public AjaxResult adjust(@RequestBody WalletAdjustDTO dto) {
+        walletService.assertCurrentUserCanAccessPlayer(dto.getPlayerId());
         String operator = SecurityUtils.getUsername();
-        return walletService.adjust(dto, operator);
+        return walletService.transferAdjust(dto, operator, Agency.ROOT_PLAYER_ID);
     }
 }

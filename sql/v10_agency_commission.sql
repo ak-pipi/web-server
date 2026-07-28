@@ -63,6 +63,17 @@ CALL add_index_if_missing('agency', 'idx_agency_type_status',
 CALL add_column_if_missing('admin_audit_log', 'status',
     'ALTER TABLE `admin_audit_log` ADD COLUMN `status` tinyint NOT NULL DEFAULT 1 COMMENT ''审批状态: 0-待审批, 1-已生效, 2-已驳回'' AFTER `reason`');
 
+CALL add_column_if_missing('game_guan_dan', 'rule_config',
+    'ALTER TABLE `game_guan_dan` ADD COLUMN `rule_config` varchar(2048) DEFAULT NULL COMMENT ''玩法配置JSON，包含房费、局数等结算参数'' AFTER `level`');
+UPDATE `game_guan_dan`
+SET `rule_config` = CASE
+    WHEN `level` = 4 THEN '{"level":3,"base_score":10,"round_count":8,"player_count":4,"room_fee_type":6,"room_fee":6}'
+    WHEN `level` = 5 THEN '{"level":3,"base_score":20,"round_count":8,"player_count":4,"room_fee_type":7,"room_fee":7}'
+    WHEN `level` = 3 THEN '{"level":3,"base_score":5,"round_count":8,"player_count":4,"room_fee_type":4,"room_fee":4}'
+    ELSE '{"level":1,"base_score":1,"round_count":8,"player_count":4,"room_fee_type":2,"room_fee":2}'
+END
+WHERE `rule_config` IS NULL OR `rule_config` = '';
+
 CREATE TABLE IF NOT EXISTS `sys_user_agent` (
     `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
     `user_id` bigint NOT NULL COMMENT '后台用户ID',
@@ -217,7 +228,7 @@ SET `depth` = IFNULL(`depth`, IFNULL(`level`, 1)),
 -- 为历史代理生成默认邀请码。
 INSERT IGNORE INTO `agency_invite_code` (`agent_player_id`, `invite_code`, `channel_name`, `status`, `bind_count`, `created_by`, `create_time`)
 SELECT a.`player_id`,
-       CONCAT('AG', UPPER(SUBSTRING(MD5(a.`player_id`), 1, 10))),
+       CONCAT('AG', UPPER(SUBSTRING(REPLACE(UUID(), '-', ''), 1, 10))),
        'default',
        0,
        0,
@@ -258,6 +269,16 @@ WHERE p.`agency_id` IS NOT NULL
       WHERE b.`player_id` = p.`id` AND b.`status` = 'active'
   );
 
+-- 已废弃的旧游戏房间管理页不再进入 web_ui 动态路由。
+DELETE FROM `sys_role_menu` WHERE `menu_id` IN (1201, 1202, 1203, 1204);
+UPDATE `sys_menu`
+SET `visible` = '1',
+    `status` = '1',
+    `update_by` = 'migration',
+    `update_time` = NOW(),
+    `remark` = 'web_ui 已移除该旧游戏管理页'
+WHERE `menu_id` IN (1201, 1202, 1203, 1204);
+
 -- 后台菜单与按钮权限。
 INSERT INTO `sys_menu`
 (`menu_id`, `menu_name`, `parent_id`, `order_num`, `path`, `component`, `query`, `route_name`, `is_frame`, `is_cache`, `menu_type`, `visible`, `status`, `perms`, `icon`, `create_by`, `create_time`, `update_by`, `update_time`, `remark`)
@@ -279,7 +300,11 @@ VALUES
 (1314, '积分流水', 1301, 13, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:agency:wallet:list', '#', 'admin', NOW(), '', NULL, ''),
 (1315, '积分调整', 1301, 14, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:agency:wallet:adjust', '#', 'admin', NOW(), '', NULL, ''),
 (1316, '解绑查询', 1301, 15, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:agency:unbind:list', '#', 'admin', NOW(), '', NULL, ''),
-(1317, '解绑执行', 1301, 16, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:agency:unbind:execute', '#', 'admin', NOW(), '', NULL, '')
+(1317, '解绑执行', 1301, 16, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:agency:unbind:execute', '#', 'admin', NOW(), '', NULL, ''),
+(1318, '玩家钱包查询', 1200, 1, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:wallet:query', '#', 'admin', NOW(), '', NULL, ''),
+(1319, '玩家积分流水', 1200, 2, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:wallet:ledger', '#', 'admin', NOW(), '', NULL, ''),
+(1320, '玩家房费流水', 1200, 3, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:wallet:roomFee', '#', 'admin', NOW(), '', NULL, ''),
+(1321, '玩家积分调整', 1200, 4, '#', '', '', '', 1, 0, 'F', '0', '0', 'niuma:wallet:adjust', '#', 'admin', NOW(), '', NULL, '')
 ON DUPLICATE KEY UPDATE
     `menu_name` = VALUES(`menu_name`),
     `parent_id` = VALUES(`parent_id`),
@@ -289,6 +314,30 @@ ON DUPLICATE KEY UPDATE
     `perms` = VALUES(`perms`),
     `icon` = VALUES(`icon`),
     `remark` = VALUES(`remark`);
+
+-- 代理后台默认角色。绑定 sys_user_agent 时服务端会自动授予对应角色。
+INSERT INTO `sys_role`
+(`role_id`, `role_name`, `role_key`, `role_sort`, `data_scope`, `menu_check_strictly`, `dept_check_strictly`, `status`, `del_flag`, `create_by`, `create_time`, `update_by`, `update_time`, `remark`)
+VALUES
+(3, '一级代理角色', 'agent_l1', 3, '3', 1, 1, '0', '0', 'admin', NOW(), '', NULL, '一级代理后台线路角色'),
+(4, '二级代理角色', 'agent_l2', 4, '3', 1, 1, '0', '0', 'admin', NOW(), '', NULL, '二级代理后台线路角色')
+ON DUPLICATE KEY UPDATE
+    `role_name` = VALUES(`role_name`),
+    `role_key` = VALUES(`role_key`),
+    `role_sort` = VALUES(`role_sort`),
+    `status` = VALUES(`status`),
+    `del_flag` = VALUES(`del_flag`),
+    `remark` = VALUES(`remark`);
+
+INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_id`) VALUES
+(3, 1), (3, 1200), (3, 1300), (3, 1301),
+(3, 1302), (3, 1303), (3, 1304), (3, 1306), (3, 1307), (3, 1308),
+(3, 1309), (3, 1310), (3, 1311), (3, 1312), (3, 1313), (3, 1314),
+(3, 1315), (3, 1316), (3, 1317), (3, 1318), (3, 1319), (3, 1320), (3, 1321),
+(4, 1), (4, 1200), (4, 1300), (4, 1301),
+(4, 1302), (4, 1303), (4, 1304), (4, 1306), (4, 1307), (4, 1308),
+(4, 1309), (4, 1310), (4, 1311), (4, 1312), (4, 1313), (4, 1314),
+(4, 1315), (4, 1316), (4, 1318), (4, 1319), (4, 1320), (4, 1321);
 
 DROP PROCEDURE IF EXISTS add_column_if_missing;
 DROP PROCEDURE IF EXISTS add_index_if_missing;

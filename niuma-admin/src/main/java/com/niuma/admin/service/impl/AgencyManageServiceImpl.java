@@ -25,6 +25,8 @@ import com.niuma.common.utils.StringUtils;
 import com.niuma.common.utils.ip.IpUtils;
 import com.niuma.common.core.domain.model.LoginPlayer;
 import com.niuma.common.utils.PlayerSecurityUtils;
+import com.niuma.system.domain.SysUserRole;
+import com.niuma.system.mapper.SysUserRoleMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +47,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AgencyManageServiceImpl implements IAgencyManageService {
     private static final int RATE_FULL = 10000;
+    private static final long AGENT_L1_ROLE_ID = 3L;
+    private static final long AGENT_L2_ROLE_ID = 4L;
 
     @Autowired
     private AgencyMapper agencyMapper;
@@ -54,6 +58,9 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
 
     @Autowired
     private SysUserAgentMapper sysUserAgentMapper;
+
+    @Autowired
+    private SysUserRoleMapper sysUserRoleMapper;
 
     @Autowired
     private AgencyInviteCodeMapper agencyInviteCodeMapper;
@@ -581,10 +588,13 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         if (StringUtils.isNotEmpty(dto.getEndTime())) {
             wrapper.le(WalletLedger::getCreateTime, dto.getEndTime());
         }
-        wrapper.orderByDesc(WalletLedger::getId);
-        Page<WalletLedger> page = new Page<>(pageNum(dto), pageSize(dto));
-        Page<WalletLedger> ret = walletLedgerMapper.selectPage(page, wrapper);
-        return new PageResult<>(ret.getRecords(), (int) ret.getCurrent(), (int) ret.getTotal());
+        Integer total = walletLedgerMapper.selectCount(wrapper);
+        int pageNum = pageNum(dto);
+        int pageSize = pageSize(dto);
+        wrapper.orderByDesc(WalletLedger::getId)
+                .last(limitClause(pageNum, pageSize));
+        List<WalletLedger> records = walletLedgerMapper.selectList(wrapper);
+        return new PageResult<>(records, pageNum, total != null ? total : 0);
     }
 
     @Override
@@ -603,7 +613,8 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         String walletType = StringUtils.isNotEmpty(dto.getWalletType()) ? dto.getWalletType() : WalletType.GOLD.getCode();
         Long before = walletService.getBalance(dto.getPlayerId(), walletType);
         dto.setWalletType(walletType);
-        AjaxResult result = walletService.adjust(dto, scope.getUsername());
+        String counterpartyPlayerId = scope.isAdmin() ? Agency.ROOT_PLAYER_ID : scope.getAgentPlayerId();
+        AjaxResult result = walletService.transferAdjust(dto, scope.getUsername(), counterpartyPlayerId);
         Long after = walletService.getBalance(dto.getPlayerId(), walletType);
 
         AgencyWalletAdjustLog logEntity = new AgencyWalletAdjustLog();
@@ -841,7 +852,28 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     private boolean isAgencyInScope(Agency agency, AgencyScope scope) {
-        return scope.isAdmin() || resolvePath(agency).startsWith(scope.getPathPrefix());
+        if (scope.isAdmin()) {
+            return true;
+        }
+        if (agency == null) {
+            return false;
+        }
+        if (resolvePath(agency).startsWith(scope.getPathPrefix())) {
+            return true;
+        }
+        String current = agency.getPlayerId();
+        int guard = 0;
+        while (StringUtils.isNotEmpty(current) && !Agency.ROOT_PLAYER_ID.equals(current) && guard++ < 64) {
+            if (current.equals(scope.getAgentPlayerId())) {
+                return true;
+            }
+            Agency cursor = getAgency(current);
+            if (cursor == null || StringUtils.isEmpty(cursor.getSuperiorId())) {
+                break;
+            }
+            current = cursor.getSuperiorId();
+        }
+        return false;
     }
 
     private boolean isPlayerInScope(String playerId, AgencyScope scope) {
@@ -1122,6 +1154,12 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         ledger.setFeeAmount(fee.getFeeAmount());
         ledger.setCommissionAmount(amount);
         ledger.setPathSnapshot("/" + Agency.ROOT_PLAYER_ID + "/");
+        if (amount > 0) {
+            String refNo = "PLATFORM_COMMISSION_" + fee.getId();
+            Long walletLedgerId = walletService.increase(Agency.ROOT_PLAYER_ID, WalletType.DEPOSIT.getCode(), amount,
+                    LedgerBizType.AGENCY_COMMISSION.getCode(), refNo, remark + " | 房间:" + fee.getRoomId());
+            ledger.setWalletLedgerId(walletLedgerId);
+        }
         ledger.setStatus(AgencyCommissionLedger.STATUS_SETTLED);
         ledger.setRemark(remark);
         ledger.setCreateTime(LocalDateTime.now());
@@ -1265,6 +1303,26 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             exists.setStatus(SysUserAgent.STATUS_NORMAL);
             sysUserAgentMapper.updateById(exists);
         }
+        grantAgentRole(userId, agentType);
+    }
+
+    private void grantAgentRole(Long userId, Integer agentType) {
+        if (userId == null) {
+            return;
+        }
+        SysUserRole l1Role = new SysUserRole();
+        l1Role.setUserId(userId);
+        l1Role.setRoleId(AGENT_L1_ROLE_ID);
+        sysUserRoleMapper.deleteUserRoleInfo(l1Role);
+        SysUserRole l2Role = new SysUserRole();
+        l2Role.setUserId(userId);
+        l2Role.setRoleId(AGENT_L2_ROLE_ID);
+        sysUserRoleMapper.deleteUserRoleInfo(l2Role);
+
+        SysUserRole userRole = new SysUserRole();
+        userRole.setUserId(userId);
+        userRole.setRoleId(Objects.equals(agentType, Agency.TYPE_LEVEL_ONE) ? AGENT_L1_ROLE_ID : AGENT_L2_ROLE_ID);
+        sysUserRoleMapper.batchUserRole(Collections.singletonList(userRole));
     }
 
     private void increaseJuniorCounts(String agentPlayerId, int delta) {
@@ -1546,6 +1604,11 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
 
     private int pageSize(PageBody dto) {
         return dto != null && dto.getPageSize() != null && dto.getPageSize() > 0 ? dto.getPageSize() : 10;
+    }
+
+    private String limitClause(int pageNum, int pageSize) {
+        int offset = Math.max(0, (pageNum - 1) * pageSize);
+        return "LIMIT " + offset + ", " + pageSize;
     }
 
     private int safeInt(Integer value) {

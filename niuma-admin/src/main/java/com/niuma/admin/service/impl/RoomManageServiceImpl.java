@@ -439,6 +439,7 @@ public class RoomManageServiceImpl implements IRoomManageService {
                                String afterValue, String remark) {
         AdminAuditLog auditLog = new AdminAuditLog();
         auditLog.setAdminId(Long.valueOf(adminId));
+        auditLog.setModule("ROOM");
         auditLog.setAction(action);
         auditLog.setTargetType(targetType);
         auditLog.setTargetId(targetId);

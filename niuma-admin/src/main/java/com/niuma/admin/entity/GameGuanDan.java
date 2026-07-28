@@ -31,4 +31,9 @@ public class GameGuanDan {
      * 房间等级，0-好友房，1-练习房，2-初级房，3-中级房，4-高级房，5-大师房
      */
     private Integer level;
+
+    /**
+     * 玩法配置JSON，保存房费、局数等服务端结算参数
+     */
+    private String ruleConfig;
 }

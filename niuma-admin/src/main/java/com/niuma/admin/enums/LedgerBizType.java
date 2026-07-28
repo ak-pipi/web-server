@@ -29,6 +29,7 @@ public enum LedgerBizType {
     // === 钻石类 ===
     BUY_DIAMOND("buy_diamond", "购买钻石"),
     DIAMOND_CONSUME("diamond_consume", "钻石消费"),
+    ROOM_DEPOSIT("room_deposit", "房间押金"),
 
     // === 房卡类 ===
     ROOM_FEE("room_fee", "扣房费"),

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.ClientPerfReport;
 import com.niuma.admin.enums.DashboardAlertLevel;
+import com.niuma.admin.enums.LedgerBizType;
 import com.niuma.admin.enums.ReportPeriod;
 import com.niuma.admin.mapper.ClientPerfReportMapper;
 import com.niuma.admin.mapper.GameRoundMapper;
@@ -346,9 +347,9 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
         for (String period : periods) {
             RevenueReportVO vo = RevenueReportVO.builder()
                     .date(period)
-                    .roomCardIncome(queryLedgerSum(period, "ROOM_FEE"))
-                    .activityExpense(queryLedgerAbsSum(period, "ACTIVITY_REWARD"))
-                    .adminAdjustExpense(queryLedgerAbsSum(period, "ADMIN_ADJUST"))
+                    .roomCardIncome(queryLedgerSum(period, LedgerBizType.ROOM_FEE.getCode()))
+                    .activityExpense(queryLedgerAbsSum(period, LedgerBizType.ACTIVITY_REWARD.getCode()))
+                    .adminAdjustExpense(queryLedgerAbsSum(period, LedgerBizType.ADMIN_ADJUST.getCode()))
                     .compensationExpense(queryLedgerAbsSum(period, "COMPENSATION"))
                     .payingUserCount(queryPayingUserCount(period))
                     .build();
@@ -609,7 +610,7 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
 
     /** 收入: 房卡消耗 */
     protected BigDecimal queryIncome(LocalDateTime start, LocalDateTime end) {
-        BigDecimal result = walletLedgerMapper.sumByBizTypeAndTimeRange(start, end, "ROOM_FEE");
+        BigDecimal result = walletLedgerMapper.sumByBizTypeAndTimeRange(start, end, LedgerBizType.ROOM_FEE.getCode());
         return result != null ? result : BigDecimal.ZERO;
     }
 
@@ -654,7 +655,7 @@ public class OperationServiceImpl extends ServiceImpl<ClientPerfReportMapper, Cl
     protected Long queryPayingUserCount(String period) {
         LocalDateTime start = LocalDate.parse(period).atStartOfDay();
         LocalDateTime end = start.plusDays(1).minusNanos(1);
-        Long count = walletLedgerMapper.countDistinctUserByBizTypeAndTimeRange(start, end, "ROOM_FEE");
+        Long count = walletLedgerMapper.countDistinctUserByBizTypeAndTimeRange(start, end, LedgerBizType.ROOM_FEE.getCode());
         return count != null ? count : 0L;
     }
 

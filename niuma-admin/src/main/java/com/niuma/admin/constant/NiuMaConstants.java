@@ -164,6 +164,10 @@ public final class NiuMaConstants {
     public static final int DISTRICT_HONGZHONG_B2_R8 = 18;
     public static final int DISTRICT_HONGZHONG_B5_R8 = 19;
     public static final int DISTRICT_HONGZHONG_B10_R8 = 20;
+    public static final int DISTRICT_HONGZHONG_B5_R1 = 41;
+    public static final int DISTRICT_HONGZHONG_B10_R1 = 42;
+    public static final int DISTRICT_HONGZHONG_B25_R1 = 43;
+    public static final int DISTRICT_HONGZHONG_B20_R8 = 44;
 
     // ==================== 长沙麻将 District ====================
 
@@ -171,6 +175,10 @@ public final class NiuMaConstants {
     public static final int DISTRICT_CHANGSHA_B2_R8 = 22;
     public static final int DISTRICT_CHANGSHA_B5_R8 = 23;
     public static final int DISTRICT_CHANGSHA_B10_R8 = 24;
+    public static final int DISTRICT_CHANGSHA_B5_R1 = 45;
+    public static final int DISTRICT_CHANGSHA_B10_R1 = 46;
+    public static final int DISTRICT_CHANGSHA_B25_R1 = 47;
+    public static final int DISTRICT_CHANGSHA_B20_R8 = 48;
 
     // ==================== 跑得快 District ====================
 
@@ -178,6 +186,10 @@ public final class NiuMaConstants {
     public static final int DISTRICT_PAO_DE_KUAI_B2_R8 = 26;
     public static final int DISTRICT_PAO_DE_KUAI_B5_R8 = 27;
     public static final int DISTRICT_PAO_DE_KUAI_B10_R8 = 28;
+    public static final int DISTRICT_PAO_DE_KUAI_B5_R1 = 49;
+    public static final int DISTRICT_PAO_DE_KUAI_B10_R1 = 50;
+    public static final int DISTRICT_PAO_DE_KUAI_B25_R1 = 51;
+    public static final int DISTRICT_PAO_DE_KUAI_B20_R8 = 52;
 
     // ==================== 歪胡子 District ====================
 

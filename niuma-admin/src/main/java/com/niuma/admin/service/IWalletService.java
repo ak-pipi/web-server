@@ -68,6 +68,23 @@ public interface IWalletService {
     AjaxResult adjust(WalletAdjustDTO dto, String operator);
 
     /**
+     * 后台转账式调整积分。
+     * 正数表示从资金方扣除后给目标玩家增加；负数表示从目标玩家扣除后返还资金方。
+     *
+     * @param dto 调整请求
+     * @param operator 操作人
+     * @param counterpartyPlayerId 资金方/归集方玩家ID
+     * @return 调整结果
+     */
+    AjaxResult transferAdjust(WalletAdjustDTO dto, String operator, String counterpartyPlayerId);
+
+    /**
+     * 校验当前后台账号是否允许访问指定玩家。
+     * 绑定代理身份的后台账号只能访问自身线路内玩家；其他后台账号仍按菜单/角色权限控制。
+     */
+    void assertCurrentUserCanAccessPlayer(String playerId);
+
+    /**
      * 分页查询积分流水
      *
      * @param dto 查询条件

@@ -98,6 +98,30 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
     @Resource
     private GameNiu100Mapper niu100Mapper;
 
+    @Resource
+    private GameDoudizhuMapper doudizhuMapper;
+
+    @Resource
+    private GameGuanDanMapper guanDanMapper;
+
+    @Resource
+    private GameTaojiangMahjongMapper taojiangMahjongMapper;
+
+    @Resource
+    private GameHongzhongMahjongMapper hongzhongMahjongMapper;
+
+    @Resource
+    private GamePaodekuaiMapper paodekuaiMapper;
+
+    @Resource
+    private GameChangshaMahjongMapper changshaMahjongMapper;
+
+    @Resource
+    private GameYiyangWaihuziMapper yiyangWaihuziMapper;
+
+    @Resource
+    private GameYuanjiangQianfenMapper yuanjiangQianfenMapper;
+
     @Override
     public AjaxResult login(PlayerLoginDTO dto) {
         String name = AesUtil.decrypt(dto.getName());
@@ -270,6 +294,10 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         this.baseMapper.updateHeartbeat(player.getId(), nowTime);
 
         AjaxResult ajax = AjaxResult.successEx();
+        Capital capital = this.capitalService.getCapital(player.getId());
+        ajax.put("gold", capital.getGold());
+        ajax.put("deposit", capital.getDeposit());
+        ajax.put("diamond", capital.getDiamond());
         String venueId = this.redisPrimitive.get(NiuMaRedisKeys.PLAYER_CURRENT_VENUE + player.getId());
         if (StringUtils.isEmpty(venueId)) {
             ajax.put("inRoom", false);
@@ -383,8 +411,6 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         List<PlayerDTO> records = this.baseMapper.getPage(playerId, nickname, online, heartbeat, offset, dto.getPageSize());
         if (records != null) {
             String redisKey = null;
-            String gameRoom = null;
-            String number = null;
             Integer gameType = null;
             for (PlayerDTO item : records) {
                 redisKey = NiuMaRedisKeys.PLAYER_CURRENT_VENUE + item.getPlayerId();
@@ -394,24 +420,8 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
                 else
                     gameType = null;
                 if (gameType != null) {
-                    if (gameType.equals(NiuMaConstants.GAME_TYPE_MAHJONG)) {
-                        gameRoom = "标准麻将(";
-                        number = this.mahjongMapper.getNumber(venueId);
-                    }
-                    else if (gameType.equals(NiuMaConstants.GAME_TYPE_BI_JI)) {
-                        gameRoom = "六安比鸡(";
-                        number = this.biJiMapper.getNumber(venueId);
-                    }
-                    else if (gameType.equals(NiuMaConstants.GAME_TYPE_LACKEY)) {
-                        gameRoom = "逮狗腿(";
-                        number = this.lackeyMapper.getNumber(venueId);
-                    }
-                    else if (gameType.equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100)) {
-                        gameRoom = "百人牛牛(";
-                        number = this.niu100Mapper.getNumber(venueId);
-                    }
-                    if (StringUtils.isNotEmpty(number)) {
-                        gameRoom = gameRoom + number + ")";
+                    String gameRoom = resolveGameRoom(gameType, venueId);
+                    if (StringUtils.isNotEmpty(gameRoom)) {
                         item.setGameRoom(gameRoom);
                     }
                 }
@@ -434,6 +444,53 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         }
         result.setRecords(records);
         return result;
+    }
+
+    private String resolveGameRoom(Integer gameType, String venueId) {
+        if (gameType == null || StringUtils.isEmpty(venueId))
+            return null;
+        String name = null;
+        String number = null;
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU)) {
+            name = "斗地主";
+            number = this.doudizhuMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN)) {
+            name = "掼蛋";
+            number = this.guanDanMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            name = "桃江麻将";
+            number = this.taojiangMahjongMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            name = "红中麻将";
+            number = this.hongzhongMahjongMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            name = "跑得快";
+            number = this.paodekuaiMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            name = "长沙麻将";
+            number = this.changshaMahjongMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI)) {
+            name = "益阳歪胡子";
+            number = this.yiyangWaihuziMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
+            name = "沅江千分";
+            number = this.yuanjiangQianfenMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_MAHJONG)) {
+            name = "标准麻将";
+            number = this.mahjongMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_BI_JI)) {
+            name = "六安比鸡";
+            number = this.biJiMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_LACKEY)) {
+            name = "逮狗腿";
+            number = this.lackeyMapper.getNumber(venueId);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100)) {
+            name = "百人牛牛";
+            number = this.niu100Mapper.getNumber(venueId);
+        }
+        if (StringUtils.isEmpty(name))
+            return venueId;
+        return StringUtils.isNotEmpty(number) ? name + "(" + number + ")" : name + "(" + venueId + ")";
     }
 
     @Override

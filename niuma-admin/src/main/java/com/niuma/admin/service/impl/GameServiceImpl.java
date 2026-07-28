@@ -12,6 +12,7 @@ import com.niuma.admin.entity.*;
 import com.niuma.admin.enums.LedgerBizType;
 import com.niuma.admin.enums.WalletType;
 import com.niuma.admin.mapper.*;
+import com.niuma.admin.service.AgencyScopeSupport;
 import com.niuma.admin.rabbit.RabbitSender;
 import com.niuma.admin.service.IGameRecordRetentionService;
 import com.niuma.admin.service.IGameService;
@@ -138,6 +139,9 @@ public class GameServiceImpl implements IGameService {
     private PlayerMapper playerMapper;
 
     @Resource
+    private PlayerAgentBindMapper playerAgentBindMapper;
+
+    @Resource
     private DistrictMapper districtMapper;
 
     @Resource
@@ -148,6 +152,9 @@ public class GameServiceImpl implements IGameService {
 
     @Autowired
     private IWalletService walletService;
+
+    @Autowired
+    private AgencyScopeSupport agencyScopeSupport;
 
     // 异步命令映射表
     private Map<String, MqCommandDeferred> commandDeferredMap = new HashMap<>();
@@ -174,6 +181,17 @@ public class GameServiceImpl implements IGameService {
     }
 
     @FunctionalInterface
+    private interface AdminRegionalRecordCounter {
+        Integer count(String playerId, Collection<String> playerIds, LocalDateTime cutoff);
+    }
+
+    @FunctionalInterface
+    private interface AdminRegionalRecordPager {
+        List<GameRegionalRecord> get(String playerId, Collection<String> playerIds, LocalDateTime cutoff,
+                                     Integer offset, Integer pageSize);
+    }
+
+    @FunctionalInterface
     private interface RegionalRecordGetter {
         GameRegionalRecord get(Long id);
     }
@@ -197,6 +215,7 @@ public class GameServiceImpl implements IGameService {
     private MqCommandDeferred checkBeforeEnter(String playerId, String venueId, BeforeEnterCallback callback) {
         if (StringUtils.isEmpty(playerId))
             throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Current login player is null, this is unexpected");
+        assertPlayerCanEnterGame(playerId);
         String lockKey = NiuMaRedisKeys.PLAYER_ENTER_LOCK + playerId;
         Long ret = this.redisPrimitive.incr(lockKey, 1L);
         if (ret == null)
@@ -1081,6 +1100,17 @@ public class GameServiceImpl implements IGameService {
         }
     }
 
+    private void assertPlayerCanEnterGame(String playerId) {
+        if (StringUtils.isEmpty(playerId))
+            throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Current login player is null, this is unexpected");
+        LambdaQueryWrapper<PlayerAgentBind> query = Wrappers.lambdaQuery();
+        query.eq(PlayerAgentBind::getPlayerId, playerId);
+        query.eq(PlayerAgentBind::getStatus, PlayerAgentBind.STATUS_ACTIVE);
+        Integer count = this.playerAgentBindMapper.selectCount(query);
+        if (count == null || count < 1)
+            throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "玩家未绑定代理，不能进入游戏");
+    }
+
     private void assertEnoughCarryScoreForCreate(String playerId, Integer gameType, String json) {
         assertEnoughCarryScore(playerId, resolveMinCarryScoreForCreate(gameType, json));
     }
@@ -1108,6 +1138,7 @@ public class GameServiceImpl implements IGameService {
 
     public String createGame(Integer gameType, String playerId, String base64) {
         String json = decodeRuleConfigBase64(base64);
+        assertPlayerCanEnterGame(playerId);
         assertEnoughCarryScoreForCreate(playerId, gameType, json);
         GameMahjong mahjong = null;
         GameBiJi biJi = null;
@@ -1235,12 +1266,6 @@ public class GameServiceImpl implements IGameService {
             gold = 0L;
         if (gold < cashPledge)
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足，最低需要50倍底注数量金币");
-        if (mode.equals(0)) {
-            // 扣钻模式
-            Long diamond = this.capitalMapper.getDiamond(playerId);
-            if ((diamond == null) || (diamond < 4L))
-                throw new ForbiddenException(NiuMaCodeEnum.DIAMOND_INSUFFICIENT_ERROR.getCode(), "钻石不足，最低需要4枚钻石");
-        }
         String number = this.generateNumber(new MahjongNumberTester(this.mahjongMapper));
         GameMahjong entity = new GameMahjong();
         entity.setNumber(number);
@@ -1281,12 +1306,6 @@ public class GameServiceImpl implements IGameService {
             gold = 0L;
         if (gold < cashPledge)
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足，最低需底注10倍数量金币");
-        if (mode.equals(0)) {
-            // 扣钻模式
-            Long diamond = this.capitalMapper.getDiamond(playerId);
-            if ((diamond == null) || (diamond < 1L))
-                throw new ForbiddenException(NiuMaCodeEnum.DIAMOND_INSUFFICIENT_ERROR.getCode(), "钻石不足，最低需要1枚钻石");
-        }
         String number = this.generateNumber(new BiJiNumberTester(this.biJiMapper));
         GameBiJi entity = new GameBiJi();
         entity.setNumber(number);
@@ -1333,12 +1352,6 @@ public class GameServiceImpl implements IGameService {
             gold = 0L;
         if (gold < cashPledge)
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足，需底注15倍底注数量金币");
-        if (mode.equals(0)) {
-            // 扣钻模式
-            Long diamond = this.capitalMapper.getDiamond(playerId);
-            if ((diamond == null) || (diamond < 2L))
-                throw new ForbiddenException(NiuMaCodeEnum.DIAMOND_INSUFFICIENT_ERROR.getCode(), "钻石不足，最低需要2枚钻石");
-        }
         String number = this.generateNumber(new LackeyNumberTester(this.lackeyMapper));
         GameLackey entity = new GameLackey();
         entity.setNumber(number);
@@ -1964,6 +1977,7 @@ public class GameServiceImpl implements IGameService {
         District district = this.districtMapper.selectById(districtId);
         if (district == null)
             throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        assertPlayerCanEnterGame(playerId);
         assertEnoughCarryScoreForDistrict(playerId, districtId, district);
         String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
         Map<String, String> notFullMap = this.redisPrimitive.getMap(notFullKey);
@@ -2520,18 +2534,6 @@ public class GameServiceImpl implements IGameService {
             result.setResult(new ResponseEntity<>(ajax, HttpStatus.NOT_FOUND));
             return;
         }
-        Long diamondNeed = entity.getDiamondNeed();
-        if (diamondNeed != null && diamondNeed > 0L) {
-            // 扣钻模式
-            Long diamond = this.capitalMapper.getDiamond(player.getId());
-            if ((diamond == null) || (diamond < diamondNeed)) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("钻石不足，最低需要");
-                sb.append(diamondNeed);
-                sb.append("枚钻石");
-                throw new ForbiddenException(NiuMaCodeEnum.DIAMOND_INSUFFICIENT_ERROR.getCode(), sb.toString());
-            }
-        }
         String venueId = districtId.toString();
         MqCommandDeferred actionDeferred = this.checkBeforeEnter(player.getId(), venueId, (playerIdIn, venueIdIn) -> {
             // 响应进入指定区域
@@ -2780,6 +2782,7 @@ public class GameServiceImpl implements IGameService {
                 Venue venue = this.venueMapper.selectById(venueId);
                 if (venue == null)
                     throw new NotFoundException(NiuMaCodeEnum.VENUE_NOT_EXIST);
+                assertPlayerCanEnterGame(playerId);
                 assertEnoughCarryScoreForVenue(playerId, venue);
                 // 响应进入指定场地
                 responseEnterVenue(deferredResult, playerId, venueId);
@@ -3271,6 +3274,150 @@ public class GameServiceImpl implements IGameService {
                 changshaMahjongMapper::getNumber);
     }
 
+    @Override
+    public PageResult<GameRecordDTO> getAdminRegionalGameRecord(AdminGameRecordQueryDTO dto) {
+        if (dto == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "请求体不能为空");
+        Integer gameType = dto.getGameType();
+        if (gameType == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "游戏类型不能为空");
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            return getAdminRegionalGameRecord(dto, gameType, "桃江麻将", 4,
+                    gameRegionalRecordMapper::countAdminTaojiangMahjongRecord,
+                    gameRegionalRecordMapper::getAdminTaojiangMahjongRecords,
+                    taojiangMahjongMapper::getNumber);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            return getAdminRegionalGameRecord(dto, gameType, "红中麻将", 4,
+                    gameRegionalRecordMapper::countAdminHongzhongMahjongRecord,
+                    gameRegionalRecordMapper::getAdminHongzhongMahjongRecords,
+                    hongzhongMahjongMapper::getNumber);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            return getAdminRegionalGameRecord(dto, gameType, "跑得快", 2,
+                    gameRegionalRecordMapper::countAdminPaodekuaiRecord,
+                    gameRegionalRecordMapper::getAdminPaodekuaiRecords,
+                    paodekuaiMapper::getNumber);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            return getAdminRegionalGameRecord(dto, gameType, "长沙麻将", 4,
+                    gameRegionalRecordMapper::countAdminChangshaMahjongRecord,
+                    gameRegionalRecordMapper::getAdminChangshaMahjongRecords,
+                    changshaMahjongMapper::getNumber);
+        }
+        throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "当前游戏暂不支持后台回放查询");
+    }
+
+    @Override
+    public AjaxResult getAdminRegionalGamePlayback(AdminGameRecordQueryDTO dto) {
+        if (dto == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "请求体不能为空");
+        if (dto.getId() == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "游戏记录id不能为空");
+        Integer gameType = dto.getGameType();
+        if (gameType == null)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "游戏类型不能为空");
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            return getAdminRegionalGamePlayback(dto, gameType, "桃江麻将", 4,
+                    gameRegionalRecordMapper::getTaojiangMahjongRecord,
+                    gameRegionalRecordMapper::getTaojiangMahjongPlayback,
+                    taojiangMahjongMapper::getNumber);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            return getAdminRegionalGamePlayback(dto, gameType, "红中麻将", 4,
+                    gameRegionalRecordMapper::getHongzhongMahjongRecord,
+                    gameRegionalRecordMapper::getHongzhongMahjongPlayback,
+                    hongzhongMahjongMapper::getNumber);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            return getAdminRegionalGamePlayback(dto, gameType, "跑得快", 2,
+                    gameRegionalRecordMapper::getPaodekuaiRecord,
+                    gameRegionalRecordMapper::getPaodekuaiPlayback,
+                    paodekuaiMapper::getNumber);
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            return getAdminRegionalGamePlayback(dto, gameType, "长沙麻将", 4,
+                    gameRegionalRecordMapper::getChangshaMahjongRecord,
+                    gameRegionalRecordMapper::getChangshaMahjongPlayback,
+                    changshaMahjongMapper::getNumber);
+        }
+        throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "当前游戏暂不支持后台回放查询");
+    }
+
+    private PageResult<GameRecordDTO> getAdminRegionalGameRecord(AdminGameRecordQueryDTO dto,
+                                                                 Integer gameType,
+                                                                 String gameName,
+                                                                 int playerCount,
+                                                                 AdminRegionalRecordCounter counter,
+                                                                 AdminRegionalRecordPager pager,
+                                                                 RegionalNumberGetter numberGetter) {
+        if (dto.getPageNum() == null || dto.getPageNum() < 1)
+            throw new BadRequestException(ResultCodeEnum.PAGE_NUM_ERROR);
+        if (dto.getPageSize() == null || dto.getPageSize() < 1)
+            throw new BadRequestException(ResultCodeEnum.PAGE_SIZE_ERROR);
+        Optional<Set<String>> scopeOpt = agencyScopeSupport.currentScopePlayerIds();
+        Collection<String> scopePlayerIds = null;
+        if (scopeOpt.isPresent()) {
+            Set<String> ids = scopeOpt.get();
+            if (StringUtils.isNotEmpty(dto.getPlayerId()) && !ids.contains(dto.getPlayerId())) {
+                throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "不能查看当前代理线路外的玩家回放");
+            }
+            if (ids.isEmpty())
+                return emptyRegionalRecordPage(dto.getPageNum());
+            scopePlayerIds = ids;
+        }
+
+        PageResult<GameRecordDTO> result = new PageResult<>();
+        result.setCodeEnum(ResultCodeEnum.SUCCESS);
+        result.setPageNum(dto.getPageNum());
+        LocalDateTime cutoff = getRecordRetentionCutoff();
+        Integer totalNum = counter.count(dto.getPlayerId(), scopePlayerIds, cutoff);
+        if (totalNum == null)
+            totalNum = 0;
+        Integer offset = (dto.getPageNum() - 1) * dto.getPageSize();
+        result.setTotal(totalNum);
+        if (offset >= totalNum)
+            return result;
+        List<GameRegionalRecord> records = pager.get(dto.getPlayerId(), scopePlayerIds, cutoff, offset, dto.getPageSize());
+        if ((records == null) || records.isEmpty())
+            return result;
+        List<GameRecordDTO> dtos = new ArrayList<>();
+        Map<String, String> numberMap = new HashMap<>();
+        Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss");
+        for (GameRegionalRecord record : records) {
+            GameRecordDTO tmp = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
+                    numberMap, playerMap);
+            if (record.getTime() != null)
+                tmp.setTime(record.getTime().format(formatter));
+            dtos.add(tmp);
+        }
+        result.setRecords(dtos);
+        return result;
+    }
+
+    private AjaxResult getAdminRegionalGamePlayback(AdminGameRecordQueryDTO dto,
+                                                   Integer gameType,
+                                                   String gameName,
+                                                   int playerCount,
+                                                   RegionalRecordGetter recordGetter,
+                                                   RegionalPlaybackGetter playbackGetter,
+                                                   RegionalNumberGetter numberGetter) {
+        GameRegionalRecord record = recordGetter.get(dto.getId());
+        if (record == null)
+            throw new NotFoundException(NiuMaCodeEnum.MAHJONG_RECORD_NOT_EXIST);
+        if (StringUtils.isNotEmpty(dto.getPlayerId()) && !isRegionalRecordParticipant(dto.getPlayerId(), record, playerCount)) {
+            throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "指定玩家未参与该局游戏");
+        }
+        Optional<Set<String>> scopeOpt = agencyScopeSupport.currentScopePlayerIds();
+        if (scopeOpt.isPresent() && !hasRegionalRecordAccess(record, playerCount, scopeOpt.get())) {
+            throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "不能查看当前代理线路外的玩家回放");
+        }
+        return buildRegionalGamePlayback(record, gameType, gameName, playerCount, playbackGetter, numberGetter);
+    }
+
+    private PageResult<GameRecordDTO> emptyRegionalRecordPage(Integer pageNum) {
+        PageResult<GameRecordDTO> result = new PageResult<>();
+        result.setCodeEnum(ResultCodeEnum.SUCCESS);
+        result.setPageNum(pageNum == null ? 1 : pageNum);
+        result.setTotal(0);
+        return result;
+    }
+
     private PageResult<GameRecordDTO> getRegionalGameRecord(PageBody dto,
                                                             Integer gameType,
                                                             String gameName,
@@ -3331,7 +3478,15 @@ public class GameServiceImpl implements IGameService {
             throw new NotFoundException(NiuMaCodeEnum.MAHJONG_RECORD_NOT_EXIST);
         if (!isRegionalRecordParticipant(player.getId(), record, playerCount))
             throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "No permission to access the specified record");
+        return buildRegionalGamePlayback(record, gameType, gameName, playerCount, playbackGetter, numberGetter);
+    }
 
+    private AjaxResult buildRegionalGamePlayback(GameRegionalRecord record,
+                                                 Integer gameType,
+                                                 String gameName,
+                                                 int playerCount,
+                                                 RegionalPlaybackGetter playbackGetter,
+                                                 RegionalNumberGetter numberGetter) {
         Map<String, String> numberMap = new HashMap<>();
         Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
         GameRecordDTO recordDto = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
@@ -3366,7 +3521,7 @@ public class GameServiceImpl implements IGameService {
             return ajax;
         }
 
-        String playback = playbackGetter.get(id);
+        String playback = playbackGetter.get(record.getId());
         playbackDto.setHasReplay(StringUtils.isNotEmpty(playback));
         playbackDto.setBase64(playback);
         AjaxResult ajax = AjaxResult.successEx();
@@ -3468,6 +3623,16 @@ public class GameServiceImpl implements IGameService {
             return false;
         for (String tmpId : getRegionalPlayerIds(record, playerCount)) {
             if (playerId.equals(tmpId))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean hasRegionalRecordAccess(GameRegionalRecord record, int playerCount, Set<String> playerIds) {
+        if (record == null || playerIds == null || playerIds.isEmpty())
+            return false;
+        for (String playerId : getRegionalPlayerIds(record, playerCount)) {
+            if (StringUtils.isNotEmpty(playerId) && playerIds.contains(playerId))
                 return true;
         }
         return false;

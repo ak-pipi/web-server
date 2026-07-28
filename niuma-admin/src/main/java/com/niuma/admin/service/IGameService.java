@@ -203,4 +203,14 @@ public interface IGameService {
      * @param id 游戏记录id
      */
     AjaxResult getChangshaMahjongPlayback(Long id);
+
+    /**
+     * 后台按权限查询三天内区域游戏回放记录。
+     */
+    PageResult<GameRecordDTO> getAdminRegionalGameRecord(AdminGameRecordQueryDTO dto);
+
+    /**
+     * 后台按权限查询区域游戏回放详情。
+     */
+    AjaxResult getAdminRegionalGamePlayback(AdminGameRecordQueryDTO dto);
 }

@@ -642,14 +642,23 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     @Override
     public PageResult<AgencyUnbindRequest> unbindPage(PageBody dto) {
         AgencyScope scope = resolveScope();
+        LambdaQueryWrapper<AgencyUnbindRequest> countWrapper = buildUnbindScopeWrapper(scope);
+        Integer total = agencyUnbindRequestMapper.selectCount(countWrapper);
+        int pageNum = pageNum(dto);
+        int pageSize = pageSize(dto);
+        LambdaQueryWrapper<AgencyUnbindRequest> listWrapper = buildUnbindScopeWrapper(scope);
+        listWrapper.orderByDesc(AgencyUnbindRequest::getId)
+                .last(limitClause(pageNum, pageSize));
+        List<AgencyUnbindRequest> records = agencyUnbindRequestMapper.selectList(listWrapper);
+        return new PageResult<>(records, pageNum, total != null ? total : 0);
+    }
+
+    private LambdaQueryWrapper<AgencyUnbindRequest> buildUnbindScopeWrapper(AgencyScope scope) {
         LambdaQueryWrapper<AgencyUnbindRequest> wrapper = Wrappers.lambdaQuery(AgencyUnbindRequest.class);
         if (!scope.isAdmin()) {
             wrapper.eq(AgencyUnbindRequest::getScopeRootPlayerId, scope.getRootAgentPlayerId());
         }
-        wrapper.orderByDesc(AgencyUnbindRequest::getId);
-        Page<AgencyUnbindRequest> page = new Page<>(pageNum(dto), pageSize(dto));
-        Page<AgencyUnbindRequest> ret = agencyUnbindRequestMapper.selectPage(page, wrapper);
-        return new PageResult<>(ret.getRecords(), (int) ret.getCurrent(), (int) ret.getTotal());
+        return wrapper;
     }
 
     @Override

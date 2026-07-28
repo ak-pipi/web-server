@@ -359,31 +359,6 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
     @Override
     @Transactional
     public AjaxResult buyDiamond(Integer index) {
-        if (index == null)
-            throw new BadRequestException(NiuMaCodeEnum.DIAMOND_PACK_INDEX_ERROR.getCode(), "Diamond pack index can't be null");
-        if (index < 1 || index > 6)
-            throw new BadRequestException(NiuMaCodeEnum.DIAMOND_PACK_INDEX_ERROR);
-        LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
-        if (player == null)
-            throw new InternalServerException("Current login player is null, this is unexpected");
-        Long[] diamonds = new Long[] { 50L, 100L, 200L, 300L, 400L, 500L };
-        Long[] golds = new Long[] { 1250L, 2400L, 4600L, 6600L, 8400L, 10000L };
-        index -= 1;
-        walletService.decrease(player.getId(), WalletType.GOLD.getCode(), golds[index],
-                LedgerBizType.BUY_DIAMOND.getCode(), null, "购买钻石");
-        walletService.increase(player.getId(), WalletType.DIAMOND.getCode(), diamonds[index],
-                LedgerBizType.BUY_DIAMOND.getCode(), null, "购买钻石");
-        // 添加购买钻石记录
-        BuyDiamond tmp = new BuyDiamond();
-        tmp.setPlayerId(player.getId());
-        tmp.setDiamond(diamonds[index]);
-        tmp.setGold(golds[index]);
-        tmp.setTime(LocalDateTime.now());
-        this.buyDiamondMapper.insert(tmp);
-
-        AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("gold", walletService.getBalance(player.getId(), WalletType.GOLD.getCode()));
-        ajax.put("diamond", walletService.getBalance(player.getId(), WalletType.DIAMOND.getCode()));
-        return ajax;
+        throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "钻石功能已下线");
     }
 }

@@ -258,8 +258,9 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         // 添加资产
         Capital capital = new Capital();
         capital.setPlayerId(entity.getId());
-        capital.setGold(1000000L);
-        capital.setDiamond(1000L);
+        capital.setGold(0L);
+        capital.setDeposit(0L);
+        capital.setDiamond(0L);
         capital.setVersion(1L);
         this.capitalService.save(capital);
         if (StringUtils.isNotEmpty(dto.getInviteCode())) {
@@ -557,8 +558,9 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
             // 添加资产
             capital = new Capital();
             capital.setPlayerId(entity.getId());
-            capital.setGold(1000000L);
-            capital.setDiamond(1000L);
+            capital.setGold(0L);
+            capital.setDeposit(0L);
+            capital.setDiamond(0L);
             capital.setVersion(1L);
             this.capitalService.save(capital);
         }

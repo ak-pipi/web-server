@@ -3,6 +3,7 @@ package com.niuma.admin.controller;
 import com.niuma.admin.dto.*;
 import com.niuma.admin.entity.*;
 import com.niuma.admin.service.IAgencyManageService;
+import com.niuma.admin.service.IGameService;
 import com.niuma.common.core.controller.BaseController;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.page.PageBody;
@@ -20,6 +21,9 @@ import org.springframework.web.bind.annotation.*;
 public class AdminAgencyController extends BaseController {
     @Autowired
     private IAgencyManageService agencyManageService;
+
+    @Autowired
+    private IGameService gameService;
 
     @GetMapping("/overview")
     @PreAuthorize("@ss.hasPermi('niuma:agency:stats')")
@@ -130,6 +134,18 @@ public class AdminAgencyController extends BaseController {
     @PreAuthorize("@ss.hasPermi('niuma:agency:unbind:execute')")
     public AjaxResult executeUnbind(@PathVariable Long requestId) {
         return agencyManageService.executeUnbind(requestId);
+    }
+
+    @PostMapping("/replay/page")
+    @PreAuthorize("@ss.hasAnyPermi('niuma:agency:replay,niuma:agency:stats')")
+    public PageResult<GameRecordDTO> replayPage(@RequestBody @Validated AdminGameRecordQueryDTO dto) {
+        return gameService.getAdminRegionalGameRecord(dto);
+    }
+
+    @PostMapping("/replay/playback")
+    @PreAuthorize("@ss.hasAnyPermi('niuma:agency:replay,niuma:agency:stats')")
+    public AjaxResult replayPlayback(@RequestBody @Validated AdminGameRecordQueryDTO dto) {
+        return gameService.getAdminRegionalGamePlayback(dto);
     }
 
     @GetMapping("/stats/player/{playerId}")

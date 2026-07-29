@@ -5,6 +5,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import com.niuma.common.utils.Threads;
 import com.niuma.common.utils.spring.SpringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 异步任务管理器
@@ -13,6 +15,8 @@ import com.niuma.common.utils.spring.SpringUtils;
  */
 public class AsyncManager
 {
+    private static final Logger logger = LoggerFactory.getLogger(AsyncManager.class);
+
     /**
      * 操作延迟10毫秒
      */
@@ -21,7 +25,7 @@ public class AsyncManager
     /**
      * 异步操作任务调度线程池
      */
-    private ScheduledExecutorService executor = SpringUtils.getBean("scheduledExecutorService");
+    private volatile ScheduledExecutorService executor;
 
     /**
      * 单例模式
@@ -42,7 +46,14 @@ public class AsyncManager
      */
     public void execute(TimerTask task)
     {
-        executor.schedule(task, OPERATE_DELAY_TIME, TimeUnit.MILLISECONDS);
+        try
+        {
+            getExecutor().schedule(task, OPERATE_DELAY_TIME, TimeUnit.MILLISECONDS);
+        }
+        catch (Exception e)
+        {
+            logger.error("提交异步任务失败", e);
+        }
     }
 
     /**
@@ -51,5 +62,23 @@ public class AsyncManager
     public void shutdown()
     {
         Threads.shutdownAndAwaitTermination(executor);
+    }
+
+    private ScheduledExecutorService getExecutor()
+    {
+        ScheduledExecutorService current = executor;
+        if (current == null || current.isShutdown() || current.isTerminated())
+        {
+            synchronized (this)
+            {
+                current = executor;
+                if (current == null || current.isShutdown() || current.isTerminated())
+                {
+                    executor = SpringUtils.getBean("scheduledExecutorService");
+                    current = executor;
+                }
+            }
+        }
+        return current;
     }
 }

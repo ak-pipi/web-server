@@ -84,6 +84,9 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     @Override
     public Long getBalance(String playerId, String walletType) {
         Capital capital = capitalMapper.selectById(playerId);
+        if (capital == null && Agency.ROOT_PLAYER_ID.equals(playerId)) {
+            capital = initCapital(playerId);
+        }
         if (capital == null) {
             return 0L;
         }
@@ -172,10 +175,19 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     private Capital initCapital(String playerId) {
         Capital entity = new Capital();
         entity.setPlayerId(playerId);
-        entity.setGold(0L);
+        entity.setGold(Agency.ROOT_PLAYER_ID.equals(playerId) ? 500000000L : 0L);
         entity.setDeposit(0L);
         entity.setDiamond(0L);
-        capitalMapper.insert(entity);
+        entity.setVersion(0L);
+        try {
+            capitalMapper.insert(entity);
+        } catch (Exception ex) {
+            Capital existing = capitalMapper.selectById(playerId);
+            if (existing != null) {
+                return existing;
+            }
+            throw ex;
+        }
         return entity;
     }
 

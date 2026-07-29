@@ -598,6 +598,15 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     @Override
+    public AjaxResult walletBalance(String playerId) {
+        AgencyScope scope = resolveScope();
+        if (!scope.isAdmin() && !isPlayerInScope(playerId, scope)) {
+            throw new ForbiddenException("不能查看当前线路外的玩家积分");
+        }
+        return walletService.getBalances(playerId);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public AjaxResult adjustWallet(WalletAdjustDTO dto) {
         AgencyScope scope = resolveScope();
@@ -898,6 +907,11 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             Agency agent = getAgency(bind.getAgentPlayerId());
             return agent != null && isAgencyInScope(agent, scope);
         }
+        PlayerAgentBind latestBind = findLatestBind(playerId);
+        if (latestBind != null) {
+            Agency agent = getAgency(latestBind.getAgentPlayerId());
+            return agent != null && isAgencyInScope(agent, scope);
+        }
         Player player = playerMapper.selectById(playerId);
         if (player != null && StringUtils.isNotEmpty(player.getAgencyId())) {
             Agency agent = getAgency(player.getAgencyId());
@@ -1042,6 +1056,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         legacy.setPathSnapshot(resolvePath(agent) + playerId + "/");
         legacy.setStatus(PlayerAgentBind.STATUS_ACTIVE);
         return legacy;
+    }
+
+    private PlayerAgentBind findLatestBind(String playerId) {
+        if (StringUtils.isEmpty(playerId)) {
+            return null;
+        }
+        return playerAgentBindMapper.selectOne(
+                Wrappers.lambdaQuery(PlayerAgentBind.class)
+                        .eq(PlayerAgentBind::getPlayerId, playerId)
+                        .orderByDesc(PlayerAgentBind::getId)
+                        .last("LIMIT 1"));
     }
 
     private List<PlayerAgentBind> queryActiveBinds(List<String> agentIds) {

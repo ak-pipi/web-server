@@ -1,0 +1,19 @@
+{
+  "name": "niuma-aws-deployment",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "aws-cdk": "^2.0.0",
+    "aws-cdk-lib": "^2.0.0",
+    "constructs": "^10.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

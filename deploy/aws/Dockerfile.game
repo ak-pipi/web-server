@@ -1,0 +1,65 @@
+# Build with context: C++ game server project (default sibling: ../../server).
+# The target EC2 is x86_64 (t3/c6i), so publish.sh always creates linux/amd64.
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023 AS builder
+
+ARG RABBITMQ_C_VERSION=v0.15.0
+ARG MYSQL_CONCPP_JDBC_RPM=https://yum.oracle.com/repo/OracleLinux/OL9/MySQL/connectors/community/x86_64/getPackage/mysql-connector-c++-jdbc-9.2.0-1.el9.x86_64.rpm
+ARG MYSQL_CONCPP_DEVEL_RPM=https://yum.oracle.com/repo/OracleLinux/OL9/MySQL/connectors/community/x86_64/getPackage/mysql-connector-c++-devel-9.2.0-1.el9.x86_64.rpm
+ARG BUILD_JOBS=1
+
+# Amazon Linux distributes the Lite API inside libprotobuf, instead of as a
+# separate package. Connector/C++ only requires that API.
+RUN dnf install -y \
+      gcc gcc-c++ cmake make git \
+      openssl-devel boost-devel boost-static protobuf-devel protobuf-compiler \
+      mariadb-connector-c-devel \
+    && ln -s /usr/lib64/libprotobuf.so /usr/lib64/libprotobuf-lite.so \
+    && dnf clean all
+
+RUN git clone --depth 1 --branch ${RABBITMQ_C_VERSION} https://github.com/alanxz/rabbitmq-c.git /tmp/rabbitmq-c \
+    && cmake -S /tmp/rabbitmq-c -B /tmp/rabbitmq-c/build \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DENABLE_SSL_SUPPORT=ON \
+      -DBUILD_STATIC_LIBS=ON \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /tmp/rabbitmq-c/build --parallel ${BUILD_JOBS} \
+    && cmake --install /tmp/rabbitmq-c/build \
+    && rm -rf /tmp/rabbitmq-c
+
+# Connector/C++ 9.2 cannot be built with Amazon Linux's MariaDB client
+# headers. Use Oracle's EL9 binary packages instead; Amazon Linux 2023 uses
+# a compatible glibc/OpenSSL ABI and the JDBC package binds its client code in.
+RUN dnf install -y cpio rpm \
+    && curl -fsSL --retry 3 -o /tmp/mysql-concpp-jdbc.rpm "$MYSQL_CONCPP_JDBC_RPM" \
+    && curl -fsSL --retry 3 -o /tmp/mysql-concpp-devel.rpm "$MYSQL_CONCPP_DEVEL_RPM" \
+    && rpm2cpio /tmp/mysql-concpp-jdbc.rpm | cpio -idm \
+    && rpm2cpio /tmp/mysql-concpp-devel.rpm | cpio -idm \
+    && rm -f /tmp/mysql-concpp-jdbc.rpm /tmp/mysql-concpp-devel.rpm \
+    && dnf clean all
+
+WORKDIR /build
+COPY . /build
+RUN cmake -S . -B build_output \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DMYSQL_CONCPP_INCLUDE_DIR=/usr/include/mysql-cppconn \
+      -DMYSQL_CONCPP_LIBRARY=/usr/lib64/libmysqlcppconn.so \
+    && cmake --build build_output --parallel ${BUILD_JOBS}
+
+FROM public.ecr.aws/amazonlinux/amazonlinux:2023
+RUN dnf install -y openssl-libs boost protobuf mariadb-connector-c \
+    && dnf clean all
+
+WORKDIR /app
+COPY --from=builder /build/build_output/Server/Server /app/Server
+COPY --from=builder /usr/lib64/libmysqlcppconn.so.10* /usr/local/lib/
+# Connector/C++ loads server authentication plugins dynamically. The game
+# server must ship the plugin directory as well as libmysqlcppconn itself so
+# it can authenticate to RDS accounts using mysql_native_password.
+COPY --from=builder /usr/lib64/mysql/libmysqlcppconn10/plugin/ /usr/lib64/mysql/libmysqlcppconn10/plugin/
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/mysql-connector-cpp.conf \
+    && ldconfig \
+    && mkdir -p /app/log
+
+EXPOSE 10086 19098
+CMD ["./Server"]

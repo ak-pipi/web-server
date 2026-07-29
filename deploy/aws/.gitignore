@@ -1,0 +1,6 @@
+node_modules/
+cdk.out/
+dist/
+cdk.context.json
+config.env
+.DS_Store

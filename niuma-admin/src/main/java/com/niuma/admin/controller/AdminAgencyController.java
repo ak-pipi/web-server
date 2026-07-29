@@ -105,6 +105,12 @@ public class AdminAgencyController extends BaseController {
         return agencyManageService.walletLedgerPage(dto);
     }
 
+    @PostMapping("/wallet/balance")
+    @PreAuthorize("@ss.hasAnyPermi('niuma:agency:wallet:list,niuma:agency:wallet:adjust')")
+    public AjaxResult walletBalance(@RequestBody @Validated WalletBalanceQueryDTO dto) {
+        return agencyManageService.walletBalance(dto.getPlayerId());
+    }
+
     @PostMapping("/wallet/adjust")
     @PreAuthorize("@ss.hasPermi('niuma:agency:wallet:adjust')")
     public AjaxResult adjustWallet(@RequestBody @Validated WalletAdjustDTO dto) {

@@ -180,6 +180,16 @@ public class AgencyScopeSupport {
             return isAgencyInScope(agent, scope);
         }
 
+        PlayerAgentBind latestBind = playerAgentBindMapper.selectOne(
+                Wrappers.lambdaQuery(PlayerAgentBind.class)
+                        .eq(PlayerAgentBind::getPlayerId, playerId)
+                        .orderByDesc(PlayerAgentBind::getId)
+                        .last("LIMIT 1"));
+        if (latestBind != null) {
+            Agency agent = getAgency(latestBind.getAgentPlayerId());
+            return isAgencyInScope(agent, scope);
+        }
+
         Player player = playerMapper.selectById(playerId);
         if (player != null && StringUtils.isNotEmpty(player.getAgencyId())) {
             Agency agent = getAgency(player.getAgencyId());

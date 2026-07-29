@@ -40,6 +40,8 @@ public interface IAgencyManageService {
 
     PageResult<WalletLedger> walletLedgerPage(LedgerQueryDTO dto);
 
+    AjaxResult walletBalance(String playerId);
+
     AjaxResult adjustWallet(WalletAdjustDTO dto);
 
     PageResult<AgencyUnbindRequest> unbindPage(PageBody dto);

@@ -2,8 +2,11 @@ package com.niuma.admin.controller;
 
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.core.controller.BaseController;
+import com.niuma.admin.dto.AdminGameRecordQueryDTO;
+import com.niuma.admin.dto.GameRecordDTO;
 import com.niuma.admin.dto.PlayerActionDTO;
 import com.niuma.admin.dto.PlayerQueryDTO;
+import com.niuma.admin.service.IGameService;
 import com.niuma.admin.service.IPlayerManageService;
 import com.niuma.common.page.PageResult;
 import com.niuma.admin.entity.Player;
@@ -29,6 +32,9 @@ public class AdminPlayerController extends BaseController {
     @Autowired
     private IPlayerManageService playerManageService;
 
+    @Autowired
+    private IGameService gameService;
+
     // ==================== 列表与详情 ====================
 
     /**
@@ -37,7 +43,7 @@ public class AdminPlayerController extends BaseController {
      */
     @Operation(summary = "查询玩家列表(增强)")
     @GetMapping("/list")
-    @PreAuthorize("@ss.hasPermi('admin:player:list')")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:list,niuma:player')")
     public PageResult<Player> list(PlayerQueryDTO dto) {
         return playerManageService.queryPlayers(dto);
     }
@@ -48,7 +54,7 @@ public class AdminPlayerController extends BaseController {
      */
     @Operation(summary = "玩家详情(聚合)")
     @GetMapping("/detail/{playerId}")
-    @PreAuthorize("@ss.hasPermi('admin:player:query')")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:query,niuma:player')")
     public AjaxResult detail(@PathVariable String playerId) {
         return playerManageService.getPlayerDetail(playerId);
     }
@@ -58,7 +64,7 @@ public class AdminPlayerController extends BaseController {
      */
     @Operation(summary = "玩家设备信息")
     @GetMapping("/{playerId}/devices")
-    @PreAuthorize("@ss.hasPermi('admin:player:query')")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:query,niuma:player')")
     public AjaxResult devices(@PathVariable String playerId) {
         return playerManageService.getPlayerDevices(playerId);
     }
@@ -68,7 +74,7 @@ public class AdminPlayerController extends BaseController {
      */
     @Operation(summary = "IP登录历史")
     @GetMapping("/{playerId}/ip-history")
-    @PreAuthorize("@ss.hasPermi('admin:player:query')")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:query,niuma:player')")
     public AjaxResult ipHistory(@PathVariable String playerId) {
         return playerManageService.getPlayerIpHistory(playerId);
     }
@@ -78,9 +84,27 @@ public class AdminPlayerController extends BaseController {
      */
     @Operation(summary = "游戏战绩统计")
     @GetMapping("/{playerId}/records")
-    @PreAuthorize("@ss.hasPermi('admin:player:query')")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:query,niuma:player')")
     public AjaxResult records(@PathVariable String playerId) {
         return playerManageService.getPlayerRecords(playerId);
+    }
+
+    @Operation(summary = "玩家三天回放列表")
+    @PostMapping("/{playerId}/replay/page")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:query,niuma:player')")
+    public PageResult<GameRecordDTO> replayPage(@PathVariable String playerId,
+                                                @RequestBody AdminGameRecordQueryDTO dto) {
+        dto.setPlayerId(playerId);
+        return gameService.getAdminRegionalGameRecord(dto);
+    }
+
+    @Operation(summary = "玩家三天回放数据")
+    @PostMapping("/{playerId}/replay/playback")
+    @PreAuthorize("@ss.hasAnyPermi('admin:player:query,niuma:player')")
+    public AjaxResult replayPlayback(@PathVariable String playerId,
+                                     @RequestBody AdminGameRecordQueryDTO dto) {
+        dto.setPlayerId(playerId);
+        return gameService.getAdminRegionalGamePlayback(dto);
     }
 
     // ==================== 账户操作 ====================

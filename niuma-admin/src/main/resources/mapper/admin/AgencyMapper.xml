@@ -53,13 +53,20 @@
 
     <select id="getCurrentRewards" resultType="com.niuma.common.dto.LongPairDTO">
         select `id` as `value1`, `amount` as `value2` from `agency_reward` where `player_id` = #{playerId} and `collect_id` is null
+        for update
     </select>
 
     <update id="collectRewards">
-        update `agency_reward` set `collect_id` = #{collectId} where `id` in
+        update `agency_reward` set `collect_id` = #{collectId} where `collect_id` is null and `id` in
         <foreach item="id" collection="ids" open="(" close=")" separator=",">
             #{id}
         </foreach>
+    </update>
+
+    <update id="reduceRewardAmount">
+        update `agency_reward`
+        set `amount` = `amount` - #{amount}
+        where `collect_id` is null and `id` = #{id} and `amount` >= #{amount}
     </update>
 
     <update id="addTotalReward">

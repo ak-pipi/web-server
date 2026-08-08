@@ -26,6 +26,21 @@ public class RoomItemDTO {
     private Integer gameType;
 
     /**
+     * 游戏名称
+     */
+    private String gameName;
+
+    /**
+     * 游戏分类文本，如麻将/扑克
+     */
+    private String gameTypeText;
+
+    /**
+     * 对局模式文本，如单局/8局/百人场
+     */
+    private String gameModeText;
+
+    /**
      * 创建者ID
      */
     private String ownerId;

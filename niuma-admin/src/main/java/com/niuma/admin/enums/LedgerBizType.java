@@ -33,6 +33,7 @@ public enum LedgerBizType {
 
     // === 房卡类 ===
     ROOM_FEE("room_fee", "扣房费"),
+    SHUFFLE_FEE("shuffle_fee", "洗牌扣分"),
     GRANT_ROOM_CARD("grant_room_card", "发放房卡"),
 
     // === 积分类 ===

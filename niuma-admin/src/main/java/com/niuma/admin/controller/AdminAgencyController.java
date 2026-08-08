@@ -63,22 +63,16 @@ public class AdminAgencyController extends BaseController {
         return agencyManageService.updateStatus(agentPlayerId, dto);
     }
 
-    @PostMapping("/{agentPlayerId}/invite-code")
-    @PreAuthorize("@ss.hasPermi('niuma:agency:invite:update')")
-    public AjaxResult resetInviteCode(@PathVariable String agentPlayerId) {
-        return agencyManageService.resetInviteCode(agentPlayerId);
-    }
-
     @PostMapping("/invite/page")
     @PreAuthorize("@ss.hasPermi('niuma:agency:invite')")
     public PageResult<AgencyInviteCode> invitePage(@RequestBody PageBody dto) {
         return agencyManageService.invitePage(dto);
     }
 
-    @PostMapping("/bind/by-code")
-    @PreAuthorize("@ss.hasPermi('niuma:agency:binding:update')")
-    public AjaxResult bindByCode(@RequestBody @Validated AgencyBindByCodeDTO dto) {
-        return agencyManageService.bindByInviteCode(dto.getPlayerId(), dto.getInviteCode(), "admin", getUserId());
+    @PostMapping("/stat/page")
+    @PreAuthorize("@ss.hasPermi('niuma:agency:stats')")
+    public PageResult<AgencyStatsDTO> statPage(@RequestBody @Validated AgencyStatsQueryDTO dto) {
+        return agencyManageService.statsPage(dto);
     }
 
     @PostMapping("/bindings/page")

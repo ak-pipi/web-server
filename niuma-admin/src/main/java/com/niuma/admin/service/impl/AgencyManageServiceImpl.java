@@ -24,12 +24,15 @@ import com.niuma.common.utils.SecurityUtils;
 import com.niuma.common.utils.StringUtils;
 import com.niuma.common.utils.ip.IpUtils;
 import com.niuma.common.core.domain.model.LoginPlayer;
+import com.niuma.common.core.domain.entity.SysUser;
 import com.niuma.common.utils.PlayerSecurityUtils;
 import com.niuma.system.domain.SysUserRole;
+import com.niuma.system.mapper.SysUserMapper;
 import com.niuma.system.mapper.SysUserRoleMapper;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,6 +66,9 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     private SysUserRoleMapper sysUserRoleMapper;
 
     @Autowired
+    private SysUserMapper sysUserMapper;
+
+    @Autowired
     private AgencyInviteCodeMapper agencyInviteCodeMapper;
 
     @Autowired
@@ -91,6 +97,9 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
 
     @Autowired
     private IWalletService walletService;
+
+    @Autowired
+    private AgencyStatsSupport agencyStatsSupport;
 
     @Data
     private static class AgencyScope {
@@ -139,9 +148,11 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AjaxResult tree() {
         AgencyScope scope = resolveScope();
         List<Agency> agencies = queryScopeAgencies(scope);
+        ensureInviteCodesForAgencies(agencies, scope.getUsername());
         Map<String, Agency> agencyMap = agencies.stream()
                 .collect(Collectors.toMap(Agency::getPlayerId, a -> a, (a, b) -> a));
 
@@ -212,15 +223,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public PageResult<AgencyListDTO> page(AgencyPageQueryDTO dto) {
         AgencyScope scope = resolveScope();
         List<Agency> agencies = queryScopeAgencies(scope);
+        ensureInviteCodesForAgencies(agencies, scope.getUsername());
         List<AgencyListDTO> records = new ArrayList<>();
         for (Agency agency : agencies) {
             if (dto.getAgentType() != null && !dto.getAgentType().equals(resolveAgentType(agency))) {
                 continue;
             }
-            if (dto.getStatus() != null && !dto.getStatus().equals(resolveStatus(agency))) {
+            if (dto.getStatus() != null && !dto.getStatus().equals(resolveWorkbenchStatus(agency.getPlayerId()))) {
                 continue;
             }
             if (StringUtils.isNotEmpty(dto.getPlayerId()) && !agency.getPlayerId().contains(dto.getPlayerId())) {
@@ -307,12 +320,11 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         agency.setTotalReward(0L);
         agency.setStatus(Agency.STATUS_NORMAL);
         agency.setCreatedByUserId(scope.getUserId());
-        agency.setCreatedByPlayerId(scope.getAgentPlayerId());
+        agency.setCreatedByPlayerId(scope.isAdmin() ? Agency.ROOT_PLAYER_ID : scope.getAgentPlayerId());
         agencyMapper.insert(agency);
 
-        if (dto.getSysUserId() != null) {
-            bindSysUser(dto.getSysUserId(), agency.getPlayerId(), agency.getAgentType(), scope.getUsername());
-        }
+        Long workbenchUserId = ensureWorkbenchUser(player, agency.getAgentType(), scope.getUsername());
+        bindSysUser(workbenchUserId, agency.getPlayerId(), agency.getAgentType(), scope.getUsername());
         AgencyInviteCode inviteCode = ensureInviteCode(agency.getPlayerId(), null, scope.getUsername());
         writeAudit(scope, "AGENCY_CREATE", "AGENCY", agency.getPlayerId(), null,
                 "设置代理，比例bp=" + dto.getCommissionRateBp());
@@ -321,6 +333,7 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         ajax.put("playerId", agency.getPlayerId());
         ajax.put("agentType", agency.getAgentType());
         ajax.put("inviteCode", inviteCode.getInviteCode());
+        ajax.put("workbenchAccount", player.getName());
         return ajax;
     }
 
@@ -353,31 +366,35 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     @Transactional(rollbackFor = Exception.class)
     public AjaxResult updateStatus(String agentPlayerId, AgencyStatusUpdateDTO dto) {
         AgencyScope scope = resolveScope();
-        Agency agency = requireAgency(agentPlayerId);
-        ensureManagedAgency(scope, agency, true);
-        if (dto.getStatus() != Agency.STATUS_NORMAL && dto.getStatus() != Agency.STATUS_DISABLED) {
-            throw new BadRequestException("代理状态错误");
+        if (!scope.isAdmin()) {
+            throw new ForbiddenException("只有超级管理员可以撤销或恢复代理工作台权限");
         }
-        String before = "status=" + resolveStatus(agency);
-        agency.setStatus(dto.getStatus());
-        agencyMapper.updateById(agency);
-        writeAudit(scope, "AGENCY_STATUS_UPDATE", "AGENCY", agentPlayerId, before,
-                "status=" + dto.getStatus() + " | " + StringUtils.nvl(dto.getReason(), ""));
-        return AjaxResult.successEx();
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AjaxResult resetInviteCode(String agentPlayerId) {
-        AgencyScope scope = resolveScope();
         Agency agency = requireAgency(agentPlayerId);
-        ensureManagedAgency(scope, agency, true);
-        disableActiveInviteCodes(agentPlayerId);
-        AgencyInviteCode inviteCode = ensureInviteCode(agentPlayerId, null, scope.getUsername());
-        writeAudit(scope, "AGENCY_INVITE_RESET", "AGENCY", agentPlayerId, null, inviteCode.getInviteCode());
-        AjaxResult ajax = AjaxResult.successEx();
-        ajax.put("inviteCode", inviteCode.getInviteCode());
-        return ajax;
+        if (dto.getStatus() != Agency.STATUS_NORMAL && dto.getStatus() != Agency.STATUS_DISABLED) {
+            throw new BadRequestException("工作台账号状态错误");
+        }
+        Long userId = ensureWorkbenchUser(requirePlayer(agentPlayerId), agency.getAgentType(), scope.getUsername());
+        bindSysUser(userId, agency.getPlayerId(), agency.getAgentType(), scope.getUsername());
+        SysUserAgent relation = sysUserAgentMapper.selectOne(
+                Wrappers.lambdaQuery(SysUserAgent.class)
+                        .eq(SysUserAgent::getUserId, userId)
+                        .last("LIMIT 1"));
+        if (relation == null) {
+            throw new InternalServerException("代理工作台账号映射不存在");
+        }
+        String before = "workbenchStatus=" + relation.getStatus();
+        relation.setStatus(dto.getStatus());
+        sysUserAgentMapper.updateById(relation);
+
+        SysUser workbenchUser = sysUserMapper.selectUserById(userId);
+        if (workbenchUser != null) {
+            workbenchUser.setStatus(dto.getStatus() == Agency.STATUS_NORMAL ? "0" : "1");
+            workbenchUser.setUpdateBy(scope.getUsername());
+            sysUserMapper.updateUser(workbenchUser);
+        }
+        writeAudit(scope, "AGENCY_WORKBENCH_ACCESS_UPDATE", "AGENCY", agentPlayerId, before,
+                "workbenchStatus=" + dto.getStatus() + " | " + StringUtils.nvl(dto.getReason(), ""));
+        return AjaxResult.successEx();
     }
 
     @Override
@@ -386,15 +403,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         if (StringUtils.isEmpty(playerId)) {
             throw new BadRequestException("玩家ID不能为空");
         }
-        if (StringUtils.isEmpty(inviteCode)) {
+        String normalizedInviteCode = normalizeInviteCode(inviteCode);
+        if (StringUtils.isEmpty(normalizedInviteCode)) {
             throw new BadRequestException("邀请码不能为空");
         }
         Player player = requirePlayer(playerId);
         if (CommonUtils.predicate(player.getBanned()) || CommonUtils.predicate(player.getDelFlag())) {
             throw new ForbiddenException("玩家已封禁或删除，不能绑定代理");
         }
-        AgencyInviteCode code = findActiveInviteCode(inviteCode);
+        AgencyInviteCode code = findReusableInviteCode(normalizedInviteCode);
         if (code == null) {
+            log.warn("Invite code lookup failed, playerId={}, inviteCode={}", playerId, normalizedInviteCode);
             throw new NotFoundException("邀请码不存在或已失效");
         }
         Agency agent = requireAgency(code.getAgentPlayerId());
@@ -431,8 +450,7 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         playerAgentBindMapper.insert(bind);
         playerMapper.updateAgencyId(playerId, agent.getPlayerId());
 
-        code.setBindCount(safeInt(code.getBindCount()) + 1);
-        agencyInviteCodeMapper.updateById(code);
+        increaseInviteCodeBindCount(code);
         increaseJuniorCounts(agent.getPlayerId(), 1);
 
         AjaxResult ajax = AjaxResult.successEx();
@@ -452,6 +470,63 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AjaxResult bindCurrentAgentByPlayerId(String playerId) {
+        LoginPlayer inviter = PlayerSecurityUtils.getLoginPlayer();
+        if (inviter == null) {
+            throw new InternalServerException("Current login player is null");
+        }
+        String targetPlayerId = StringUtils.trim(playerId);
+        if (StringUtils.isEmpty(targetPlayerId)) {
+            throw new BadRequestException("玩家ID不能为空");
+        }
+        Agency agent = requireAgency(inviter.getId());
+        ensureAgencyEnabled(agent);
+        Player player = requirePlayer(targetPlayerId);
+        if (CommonUtils.predicate(player.getBanned()) || CommonUtils.predicate(player.getDelFlag())) {
+            throw new ForbiddenException("玩家已封禁或删除，不能绑定代理");
+        }
+        if (targetPlayerId.equals(agent.getPlayerId())) {
+            throw new ForbiddenException("不能邀请自己");
+        }
+        Agency playerAgency = getAgency(targetPlayerId);
+        if (playerAgency != null && isAncestorOrSelf(playerAgency, agent.getPlayerId())) {
+            throw new ForbiddenException("不能绑定自己的下级代理，避免形成循环线路");
+        }
+
+        PlayerAgentBind current = findActiveBind(targetPlayerId);
+        if (current != null) {
+            if (agent.getPlayerId().equals(current.getAgentPlayerId())) {
+                AjaxResult ajax = AjaxResult.successEx();
+                ajax.put("agencyId", agent.getPlayerId());
+                ajax.put("agencyName", nickname(agent.getPlayerId()));
+                ajax.put("playerId", targetPlayerId);
+                ajax.put("alreadyBound", true);
+                return ajax;
+            }
+            throw new ForbiddenException("玩家已经绑定代理，请先走解绑流程");
+        }
+
+        PlayerAgentBind bind = new PlayerAgentBind();
+        bind.setPlayerId(targetPlayerId);
+        bind.setAgentPlayerId(agent.getPlayerId());
+        bind.setRootAgentPlayerId(rootAgentId(agent));
+        bind.setBindSource("player_id_invite");
+        bind.setPathSnapshot(resolvePath(agent) + targetPlayerId + "/");
+        bind.setStatus(PlayerAgentBind.STATUS_ACTIVE);
+        bind.setBindAt(LocalDateTime.now());
+        playerAgentBindMapper.insert(bind);
+        playerMapper.updateAgencyId(targetPlayerId, agent.getPlayerId());
+        increaseJuniorCounts(agent.getPlayerId(), 1);
+
+        AjaxResult ajax = AjaxResult.successEx();
+        ajax.put("agencyId", agent.getPlayerId());
+        ajax.put("agencyName", nickname(agent.getPlayerId()));
+        ajax.put("playerId", targetPlayerId);
+        return ajax;
+    }
+
+    @Override
     public AjaxResult getCurrentAgentInviteCode() {
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         if (player == null) {
@@ -467,9 +542,19 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AgencyInviteCode ensureDefaultInviteCode(String agentPlayerId, String operator) {
+        Agency agency = requireAgency(agentPlayerId);
+        ensureAgencyEnabled(agency);
+        return ensureInviteCode(agentPlayerId, null, operator);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public PageResult<AgencyInviteCode> invitePage(PageBody dto) {
         AgencyScope scope = resolveScope();
         List<String> agentIds = getScopeAgentIds(scope);
+        ensureInviteCodesForAgencies(queryScopeAgencies(scope), scope.getUsername());
         LambdaQueryWrapper<AgencyInviteCode> wrapper = Wrappers.lambdaQuery(AgencyInviteCode.class);
         if (!scope.isAdmin()) {
             if (agentIds.isEmpty()) {
@@ -481,6 +566,30 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         Page<AgencyInviteCode> page = new Page<>(pageNum(dto), pageSize(dto));
         Page<AgencyInviteCode> ret = agencyInviteCodeMapper.selectPage(page, wrapper);
         return new PageResult<>(ret.getRecords(), (int) ret.getCurrent(), (int) ret.getTotal());
+    }
+
+    @Override
+    public PageResult<AgencyStatsDTO> statsPage(AgencyStatsQueryDTO dto) {
+        validatePage(dto);
+        AgencyScope scope = resolveScope();
+        String parentPlayerId = StringUtils.isNotEmpty(dto.getParentPlayerId())
+                ? dto.getParentPlayerId().trim()
+                : defaultStatsParentPlayerId(scope);
+        String parentNickname;
+        if (Agency.ROOT_PLAYER_ID.equals(parentPlayerId)) {
+            if (!scope.isAdmin()) {
+                throw new ForbiddenException("不能查看当前线路外的统计");
+            }
+            parentNickname = "平台/超级管理员";
+        } else {
+            Agency parentAgency = requireAgency(parentPlayerId);
+            ensureAgencyEnabled(parentAgency);
+            if (!scope.isAdmin() && !isAgencyInScope(parentAgency, scope)) {
+                throw new ForbiddenException("不能查看当前线路外的统计");
+            }
+            parentNickname = nickname(parentAgency.getPlayerId());
+        }
+        return agencyStatsSupport.statsPage(dto, parentPlayerId, parentNickname);
     }
 
     @Override
@@ -610,6 +719,9 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     @Transactional(rollbackFor = Exception.class)
     public AjaxResult adjustWallet(WalletAdjustDTO dto) {
         AgencyScope scope = resolveScope();
+        if (!scope.isAdmin() && scope.getAgentType() != Agency.TYPE_LEVEL_ONE) {
+            throw new ForbiddenException("仅超级管理员和一级代理可以调整线路内玩家积分");
+        }
         if (!scope.isAdmin() && !isPlayerInScope(dto.getPlayerId(), scope)) {
             throw new ForbiddenException("不能调整当前线路外的玩家积分");
         }
@@ -759,6 +871,12 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void processRoomFee(RoomFeeLedger roomFeeLedger) {
+        processRoomFee(roomFeeLedger, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void processRoomFee(RoomFeeLedger roomFeeLedger, Map<String, Long> commissionShares) {
         if (roomFeeLedger == null || roomFeeLedger.getId() == null || nvl(roomFeeLedger.getFeeAmount()) <= 0) {
             return;
         }
@@ -770,28 +888,39 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             return;
         }
 
-        PlayerAgentBind bind = findActiveBind(roomFeeLedger.getUserId());
-        if (bind == null) {
-            insertPlatformCommission(roomFeeLedger, RATE_FULL, roomFeeLedger.getFeeAmount(), "玩家未绑定代理，平台获得全部房费");
+        Map<String, Long> shares = normalizeCommissionShares(roomFeeLedger, commissionShares);
+        for (Map.Entry<String, Long> entry : shares.entrySet()) {
+            processRoomFeeShare(roomFeeLedger, entry.getKey(), entry.getValue());
+        }
+    }
+
+    private void processRoomFeeShare(RoomFeeLedger sourceLedger, String commissionPlayerId, long shareAmount) {
+        if (shareAmount <= 0) {
             return;
         }
-        Agency directAgent = getAgency(bind.getAgentPlayerId());
+        RoomFeeLedger shareLedger = copyRoomFeeLedgerForAmount(sourceLedger, shareAmount);
+        String feeText = feeTypeText(shareLedger);
+        Agency directAgent = resolveCommissionDirectAgent(commissionPlayerId);
         if (directAgent == null) {
-            insertPlatformCommission(roomFeeLedger, RATE_FULL, roomFeeLedger.getFeeAmount(), "绑定代理不存在，平台获得全部房费");
+            insertPlatformCommission(shareLedger, RATE_FULL, shareLedger.getFeeAmount(),
+                    "玩家未绑定代理，平台获得全部" + feeText, commissionPlayerId);
             return;
         }
 
         List<Agency> chain = buildAgencyChain(directAgent);
         if (chain.isEmpty()) {
-            insertPlatformCommission(roomFeeLedger, RATE_FULL, roomFeeLedger.getFeeAmount(), "代理线路为空，平台获得全部房费");
+            insertPlatformCommission(shareLedger, RATE_FULL, shareLedger.getFeeAmount(),
+                    "代理线路为空，平台获得全部" + feeText, commissionPlayerId);
             return;
         }
-        long remaining = roomFeeLedger.getFeeAmount();
+        long remaining = shareLedger.getFeeAmount();
         int nextRate = resolveRate(chain.get(0));
-        long platformAmount = calcShare(roomFeeLedger.getFeeAmount(), RATE_FULL - nextRate);
+        long platformAmount = calcShare(shareLedger.getFeeAmount(), RATE_FULL - nextRate);
         remaining -= platformAmount;
-        insertPlatformCommission(roomFeeLedger, RATE_FULL - nextRate, platformAmount, "平台房费分成");
+        insertPlatformCommission(shareLedger, RATE_FULL - nextRate, platformAmount,
+                "平台" + feeText + "分成", commissionPlayerId);
 
+        String pathSnapshot = resolveCommissionPathSnapshot(commissionPlayerId, directAgent);
         for (int i = 0; i < chain.size(); i++) {
             Agency current = chain.get(i);
             int selfRate = resolveRate(current);
@@ -800,10 +929,69 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
                 throw new ForbiddenException("代理线路比例异常，下级比例超过上级");
             }
             int shareRate = selfRate - childRate;
-            long amount = (i + 1) == chain.size() ? remaining : calcShare(roomFeeLedger.getFeeAmount(), shareRate);
+            long amount = (i + 1) == chain.size() ? remaining : calcShare(shareLedger.getFeeAmount(), shareRate);
             remaining -= amount;
-            insertAgentCommission(roomFeeLedger, current, childRate, shareRate, amount, bind.getPathSnapshot());
+            insertAgentCommission(shareLedger, current, childRate, shareRate, amount, pathSnapshot);
         }
+    }
+
+    private Map<String, Long> normalizeCommissionShares(RoomFeeLedger roomFeeLedger, Map<String, Long> commissionShares) {
+        LinkedHashMap<String, Long> shares = new LinkedHashMap<>();
+        long feeAmount = nvl(roomFeeLedger.getFeeAmount());
+        if (commissionShares != null) {
+            for (Map.Entry<String, Long> entry : commissionShares.entrySet()) {
+                String playerId = StringUtils.trim(entry.getKey());
+                long amount = nvl(entry.getValue());
+                if (StringUtils.isEmpty(playerId) || amount <= 0) {
+                    continue;
+                }
+                shares.put(playerId, shares.getOrDefault(playerId, 0L) + amount);
+            }
+        }
+        long total = shares.values().stream().mapToLong(Long::longValue).sum();
+        if (shares.isEmpty() || total != feeAmount) {
+            if (!shares.isEmpty()) {
+                log.warn("[代理返佣] 返佣拆分金额与房费不一致，回退到扣费玩家: roomFeeLedgerId={}, feeAmount={}, shareTotal={}",
+                        roomFeeLedger.getId(), feeAmount, total);
+            }
+            shares.clear();
+            shares.put(roomFeeLedger.getUserId(), feeAmount);
+        }
+        return shares;
+    }
+
+    private RoomFeeLedger copyRoomFeeLedgerForAmount(RoomFeeLedger source, long amount) {
+        RoomFeeLedger fee = new RoomFeeLedger();
+        fee.setId(source.getId());
+        fee.setUserId(source.getUserId());
+        fee.setRoomId(source.getRoomId());
+        fee.setFeeType(source.getFeeType());
+        fee.setFeeAmount(amount);
+        fee.setPayWalletType(source.getPayWalletType());
+        fee.setRemark(source.getRemark());
+        fee.setCreateTime(source.getCreateTime());
+        return fee;
+    }
+
+    private Agency resolveCommissionDirectAgent(String commissionPlayerId) {
+        Agency playerAgency = getAgency(commissionPlayerId);
+        if (playerAgency != null) {
+            String superiorId = playerAgency.getSuperiorId();
+            if (StringUtils.isEmpty(superiorId) || Agency.ROOT_PLAYER_ID.equals(superiorId)) {
+                return null;
+            }
+            return getAgency(superiorId);
+        }
+        PlayerAgentBind bind = findActiveBind(commissionPlayerId);
+        return bind == null ? null : getAgency(bind.getAgentPlayerId());
+    }
+
+    private String resolveCommissionPathSnapshot(String commissionPlayerId, Agency directAgent) {
+        PlayerAgentBind bind = findActiveBind(commissionPlayerId);
+        if (bind != null && StringUtils.isNotEmpty(bind.getPathSnapshot())) {
+            return bind.getPathSnapshot();
+        }
+        return directAgent == null ? "/" + Agency.ROOT_PLAYER_ID + "/" : resolvePath(directAgent);
     }
 
     private AgencyScope resolveScope() {
@@ -834,6 +1022,19 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         scope.setPathPrefix(resolvePath(agency));
         scope.setRootAgentPlayerId(rootAgentId(agency));
         return scope;
+    }
+
+    private void validatePage(PageBody dto) {
+        if (dto.getPageNum() == null || dto.getPageNum() < 1) {
+            throw new BadRequestException(ResultCodeEnum.PAGE_NUM_ERROR);
+        }
+        if (dto.getPageSize() == null || dto.getPageSize() < 1) {
+            throw new BadRequestException(ResultCodeEnum.PAGE_SIZE_ERROR);
+        }
+    }
+
+    private String defaultStatsParentPlayerId(AgencyScope scope) {
+        return scope.isAdmin() ? Agency.ROOT_PLAYER_ID : scope.getAgentPlayerId();
     }
 
     private List<Agency> queryScopeAgencies(AgencyScope scope) {
@@ -1130,6 +1331,9 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             if (StringUtils.isNotEmpty(dto.getRoomId())) {
                 wrapper.eq(AgencyCommissionLedger::getRoomId, dto.getRoomId());
             }
+            if (StringUtils.isNotEmpty(dto.getFeeType())) {
+                wrapper.eq(AgencyCommissionLedger::getFeeType, dto.getFeeType());
+            }
             if (StringUtils.isNotEmpty(dto.getFeePlayerId())) {
                 wrapper.eq(AgencyCommissionLedger::getFeePlayerId, dto.getFeePlayerId());
             }
@@ -1171,12 +1375,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     private void insertPlatformCommission(RoomFeeLedger fee, int shareRate, long amount, String remark) {
+        insertPlatformCommission(fee, shareRate, amount, remark, null);
+    }
+
+    private void insertPlatformCommission(RoomFeeLedger fee, int shareRate, long amount, String remark, String refSuffix) {
         if (amount < 0) {
             throw new ForbiddenException("房费返佣金额不能为负数");
         }
         AgencyCommissionLedger ledger = new AgencyCommissionLedger();
         ledger.setRoomFeeLedgerId(fee.getId());
         ledger.setRoomId(fee.getRoomId());
+        ledger.setFeeType(normalizeFeeType(fee));
         ledger.setFeePlayerId(fee.getUserId());
         ledger.setAgentPlayerId(Agency.ROOT_PLAYER_ID);
         ledger.setAgentType(Agency.TYPE_ROOT);
@@ -1188,14 +1397,18 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         ledger.setFeeAmount(fee.getFeeAmount());
         ledger.setCommissionAmount(amount);
         ledger.setPathSnapshot("/" + Agency.ROOT_PLAYER_ID + "/");
+        String finalRemark = StringUtils.isNotEmpty(refSuffix) ? remark + " | 归属玩家:" + refSuffix : remark;
         if (amount > 0) {
-            String refNo = "PLATFORM_COMMISSION_" + fee.getId();
+            String suffix = StringUtils.isNotEmpty(refSuffix)
+                    ? "_" + refSuffix.replaceAll("[^A-Za-z0-9_-]", "")
+                    : "";
+            String refNo = "PLATFORM_COMMISSION_" + fee.getId() + suffix;
             Long walletLedgerId = walletService.increase(Agency.ROOT_PLAYER_ID, WalletType.DEPOSIT.getCode(), amount,
-                    LedgerBizType.AGENCY_COMMISSION.getCode(), refNo, remark + " | 房间:" + fee.getRoomId());
+                    LedgerBizType.AGENCY_COMMISSION.getCode(), refNo, finalRemark + " | 房间:" + fee.getRoomId());
             ledger.setWalletLedgerId(walletLedgerId);
         }
         ledger.setStatus(AgencyCommissionLedger.STATUS_SETTLED);
-        ledger.setRemark(remark);
+        ledger.setRemark(finalRemark);
         ledger.setCreateTime(LocalDateTime.now());
         agencyCommissionLedgerMapper.insert(ledger);
     }
@@ -1204,12 +1417,10 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         if (amount <= 0) {
             return;
         }
-        String refNo = "AGENCY_COMMISSION_" + fee.getId() + "_" + agency.getPlayerId();
-        Long walletLedgerId = walletService.increase(agency.getPlayerId(), WalletType.DEPOSIT.getCode(), amount,
-                LedgerBizType.AGENCY_COMMISSION.getCode(), refNo, "房费返佣 | 房间:" + fee.getRoomId());
         AgencyCommissionLedger ledger = new AgencyCommissionLedger();
         ledger.setRoomFeeLedgerId(fee.getId());
         ledger.setRoomId(fee.getRoomId());
+        ledger.setFeeType(normalizeFeeType(fee));
         ledger.setFeePlayerId(fee.getUserId());
         ledger.setAgentPlayerId(agency.getPlayerId());
         ledger.setAgentType(resolveAgentType(agency));
@@ -1223,11 +1434,19 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         ledger.setFeeAmount(fee.getFeeAmount());
         ledger.setCommissionAmount(amount);
         ledger.setPathSnapshot(StringUtils.isNotEmpty(snapshot) ? snapshot : resolvePath(agency));
-        ledger.setWalletLedgerId(walletLedgerId);
-        ledger.setStatus(AgencyCommissionLedger.STATUS_SETTLED);
-        ledger.setRemark("房费返佣");
+        ledger.setWalletLedgerId(null);
+        ledger.setStatus(AgencyCommissionLedger.STATUS_PENDING);
+        ledger.setRemark(feeTypeText(fee) + "返佣 | 待收益箱提取");
         ledger.setCreateTime(LocalDateTime.now());
         agencyCommissionLedgerMapper.insert(ledger);
+    }
+
+    private String normalizeFeeType(RoomFeeLedger fee) {
+        return StringUtils.isNotEmpty(fee.getFeeType()) ? fee.getFeeType() : RoomFeeLedger.FEE_TYPE_GAME_ROOM;
+    }
+
+    private String feeTypeText(RoomFeeLedger fee) {
+        return RoomFeeLedger.FEE_TYPE_SHUFFLE.equals(normalizeFeeType(fee)) ? "洗牌分" : "房费";
     }
 
     private long calcShare(long feeAmount, int shareRateBp) {
@@ -1259,20 +1478,42 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     }
 
     private AgencyInviteCode ensureInviteCode(String agentPlayerId, String channelName, String operator) {
+        Agency agency = getAgency(agentPlayerId);
+        String snapshotInviteCode = agency != null ? normalizeInviteCode(agency.getInviteCode()) : "";
+        if (StringUtils.isNotEmpty(snapshotInviteCode)) {
+            AgencyInviteCode snapshotCode = findInviteCodeRecord(snapshotInviteCode);
+            if (snapshotCode != null && agentPlayerId.equals(snapshotCode.getAgentPlayerId())) {
+                activateInviteCodeIfPossible(snapshotCode);
+                return snapshotCode;
+            }
+            if (snapshotCode == null) {
+                AgencyInviteCode active = getActiveInviteCode(agentPlayerId);
+                AgencyInviteCode created = createInviteCode(agentPlayerId, snapshotInviteCode, channelName, operator,
+                        active == null ? AgencyInviteCode.STATUS_ACTIVE : AgencyInviteCode.STATUS_DISABLED);
+                activateInviteCodeIfPossible(created);
+                return created;
+            }
+        }
+
         AgencyInviteCode current = agencyInviteCodeMapper.selectOne(
                 Wrappers.lambdaQuery(AgencyInviteCode.class)
                         .eq(AgencyInviteCode::getAgentPlayerId, agentPlayerId)
                         .eq(AgencyInviteCode::getStatus, AgencyInviteCode.STATUS_ACTIVE)
                         .last("LIMIT 1"));
         if (current != null) {
+            syncAgencyInviteCode(agentPlayerId, current.getInviteCode());
             return current;
         }
         String code = generateInviteCode();
+        return createInviteCode(agentPlayerId, code, channelName, operator, AgencyInviteCode.STATUS_ACTIVE);
+    }
+
+    private AgencyInviteCode createInviteCode(String agentPlayerId, String code, String channelName, String operator, int status) {
         AgencyInviteCode entity = new AgencyInviteCode();
         entity.setAgentPlayerId(agentPlayerId);
         entity.setInviteCode(code);
         entity.setChannelName(channelName);
-        entity.setStatus(AgencyInviteCode.STATUS_ACTIVE);
+        entity.setStatus(status);
         entity.setBindCount(0);
         entity.setCreatedBy(operator);
         entity.setCreateTime(LocalDateTime.now());
@@ -1286,24 +1527,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         return entity;
     }
 
-    private AgencyInviteCode findActiveInviteCode(String inviteCode) {
-        return agencyInviteCodeMapper.selectOne(
-                Wrappers.lambdaQuery(AgencyInviteCode.class)
-                        .eq(AgencyInviteCode::getInviteCode, inviteCode)
-                        .eq(AgencyInviteCode::getStatus, AgencyInviteCode.STATUS_ACTIVE)
-                        .last("LIMIT 1"));
-    }
-
-    private void disableActiveInviteCodes(String agentPlayerId) {
-        List<AgencyInviteCode> codes = agencyInviteCodeMapper.selectList(
-                Wrappers.lambdaQuery(AgencyInviteCode.class)
-                        .eq(AgencyInviteCode::getAgentPlayerId, agentPlayerId)
-                        .eq(AgencyInviteCode::getStatus, AgencyInviteCode.STATUS_ACTIVE));
-        for (AgencyInviteCode code : codes) {
-            code.setStatus(AgencyInviteCode.STATUS_DISABLED);
-            code.setDisabledAt(LocalDateTime.now());
-            agencyInviteCodeMapper.updateById(code);
+    private AgencyInviteCode findReusableInviteCode(String inviteCode) {
+        String normalizedInviteCode = normalizeInviteCode(inviteCode);
+        if (StringUtils.isEmpty(normalizedInviteCode)) {
+            return null;
         }
+        AgencyInviteCode code = findInviteCodeRecord(normalizedInviteCode);
+        if (code != null) {
+            activateInviteCodeIfPossible(code);
+            return code;
+        }
+        return repairInviteCodeFromAgencySnapshot(normalizedInviteCode);
     }
 
     private String generateInviteCode() {
@@ -1315,6 +1549,138 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             throw new InternalServerException("邀请码生成失败");
         }
         return code;
+    }
+
+    private String normalizeInviteCode(String inviteCode) {
+        String normalized = StringUtils.trim(inviteCode);
+        if (StringUtils.isEmpty(normalized)) {
+            return "";
+        }
+        return normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private AgencyInviteCode repairInviteCodeFromAgencySnapshot(String normalizedInviteCode) {
+        Agency agency = findAgencyByInviteCode(normalizedInviteCode);
+        if (agency == null) {
+            return null;
+        }
+        syncAgencyInviteCode(agency.getPlayerId(), normalizedInviteCode);
+
+        AgencyInviteCode existing = findInviteCodeRecord(normalizedInviteCode);
+        if (existing != null) {
+            if (!agency.getPlayerId().equals(existing.getAgentPlayerId())) {
+                return null;
+            }
+            activateInviteCodeIfPossible(existing);
+            return existing;
+        }
+
+        AgencyInviteCode current = getActiveInviteCode(agency.getPlayerId());
+        AgencyInviteCode repaired = new AgencyInviteCode();
+        repaired.setAgentPlayerId(agency.getPlayerId());
+        repaired.setInviteCode(normalizedInviteCode);
+        repaired.setChannelName("默认邀请码");
+        repaired.setStatus(current == null ? AgencyInviteCode.STATUS_ACTIVE : AgencyInviteCode.STATUS_DISABLED);
+        repaired.setBindCount(0);
+        repaired.setCreatedBy("system-repair");
+        repaired.setCreateTime(LocalDateTime.now());
+        try {
+            agencyInviteCodeMapper.insert(repaired);
+            return repaired;
+        } catch (DuplicateKeyException e) {
+            AgencyInviteCode duplicate = findInviteCodeRecord(normalizedInviteCode);
+            return duplicate != null && agency.getPlayerId().equals(duplicate.getAgentPlayerId()) ? duplicate : null;
+        }
+    }
+
+    private void ensureInviteCodesForAgencies(List<Agency> agencies, String operator) {
+        if (agencies == null || agencies.isEmpty()) {
+            return;
+        }
+        String actualOperator = StringUtils.isNotEmpty(operator) ? operator : "system";
+        for (Agency agency : agencies) {
+            if (agency == null || StringUtils.isEmpty(agency.getPlayerId())) {
+                continue;
+            }
+            AgencyInviteCode inviteCode = ensureInviteCode(agency.getPlayerId(), null, actualOperator);
+            if (inviteCode != null) {
+                agency.setInviteCode(inviteCode.getInviteCode());
+            }
+        }
+    }
+
+    private AgencyInviteCode findInviteCodeRecord(String normalizedInviteCode) {
+        if (StringUtils.isEmpty(normalizedInviteCode)) {
+            return null;
+        }
+        return agencyInviteCodeMapper.selectOne(
+                Wrappers.lambdaQuery(AgencyInviteCode.class)
+                        .apply("UPPER(TRIM(invite_code)) = {0}", normalizedInviteCode)
+                        .last("LIMIT 1"));
+    }
+
+    private Agency findAgencyByInviteCode(String normalizedInviteCode) {
+        if (StringUtils.isEmpty(normalizedInviteCode)) {
+            return null;
+        }
+        return agencyMapper.selectOne(
+                Wrappers.lambdaQuery(Agency.class)
+                        .apply("UPPER(TRIM(invite_code)) = {0}", normalizedInviteCode)
+                        .and(w -> w.eq(Agency::getStatus, Agency.STATUS_NORMAL).or().isNull(Agency::getStatus))
+                        .last("LIMIT 1"));
+    }
+
+    private void activateInviteCodeIfPossible(AgencyInviteCode code) {
+        if (code == null || code.getId() == null) {
+            return;
+        }
+        AgencyInviteCode current = getActiveInviteCode(code.getAgentPlayerId());
+        if (current != null && !current.getId().equals(code.getId())) {
+            syncAgencyInviteCode(code.getAgentPlayerId(), code.getInviteCode());
+            return;
+        }
+        try {
+            agencyInviteCodeMapper.update(null,
+                    Wrappers.lambdaUpdate(AgencyInviteCode.class)
+                            .set(AgencyInviteCode::getStatus, AgencyInviteCode.STATUS_ACTIVE)
+                            .set(AgencyInviteCode::getDisabledAt, null)
+                            .eq(AgencyInviteCode::getId, code.getId()));
+            code.setStatus(AgencyInviteCode.STATUS_ACTIVE);
+            code.setDisabledAt(null);
+        } catch (DuplicateKeyException e) {
+            log.warn("Invite code active status sync skipped, inviteCode={}, agentPlayerId={}",
+                    code.getInviteCode(), code.getAgentPlayerId());
+        }
+        syncAgencyInviteCode(code.getAgentPlayerId(), code.getInviteCode());
+    }
+
+    private void increaseInviteCodeBindCount(AgencyInviteCode code) {
+        if (code == null || code.getId() == null) {
+            return;
+        }
+        agencyInviteCodeMapper.update(null,
+                Wrappers.lambdaUpdate(AgencyInviteCode.class)
+                        .setSql("bind_count = IFNULL(bind_count, 0) + 1")
+                        .eq(AgencyInviteCode::getId, code.getId()));
+    }
+
+    private AgencyInviteCode getActiveInviteCode(String agentPlayerId) {
+        return agencyInviteCodeMapper.selectOne(
+                Wrappers.lambdaQuery(AgencyInviteCode.class)
+                        .eq(AgencyInviteCode::getAgentPlayerId, agentPlayerId)
+                        .eq(AgencyInviteCode::getStatus, AgencyInviteCode.STATUS_ACTIVE)
+                        .last("LIMIT 1"));
+    }
+
+    private void syncAgencyInviteCode(String agentPlayerId, String inviteCode) {
+        if (StringUtils.isEmpty(agentPlayerId) || StringUtils.isEmpty(inviteCode)) {
+            return;
+        }
+        Agency agency = getAgency(agentPlayerId);
+        if (agency != null && !inviteCode.equals(agency.getInviteCode())) {
+            agency.setInviteCode(inviteCode);
+            agencyMapper.updateById(agency);
+        }
     }
 
     private void bindSysUser(Long userId, String playerId, Integer agentType, String operator) {
@@ -1338,6 +1704,67 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             sysUserAgentMapper.updateById(exists);
         }
         grantAgentRole(userId, agentType);
+    }
+
+    /**
+     * 代理工作台始终复用玩家在 Cocos 注册时的账号和密码。这里仅创建后台认证映射，
+     * 不创建任何独立的普通玩家或独立密码。
+     */
+    private Long ensureWorkbenchUser(Player player, Integer agentType, String operator) {
+        if (player == null || StringUtils.isEmpty(player.getName()) || StringUtils.isEmpty(player.getPassword())) {
+            throw new BadRequestException("代理玩家必须先在Cocos客户端完成账号注册");
+        }
+        if (player.getName().length() > 30) {
+            throw new BadRequestException("玩家账号长度超过后台登录账号限制，不能授予代理工作台权限");
+        }
+
+        SysUserAgent relation = sysUserAgentMapper.selectOne(
+                Wrappers.lambdaQuery(SysUserAgent.class)
+                        .eq(SysUserAgent::getPlayerId, player.getId())
+                        .orderByDesc(SysUserAgent::getId)
+                        .last("LIMIT 1"));
+        if (relation != null) {
+            SysUser mappedUser = sysUserMapper.selectUserById(relation.getUserId());
+            if (mappedUser != null && player.getName().equals(mappedUser.getUserName())) {
+                return relation.getUserId();
+            }
+        }
+
+        SysUser existingUser = sysUserMapper.selectUserByUserName(player.getName());
+        if (existingUser != null) {
+            throw new ForbiddenException("该Cocos账号已被其他后台账号占用，不能授予代理工作台权限");
+        }
+
+        SysUser workbenchUser = new SysUser();
+        workbenchUser.setUserName(player.getName());
+        workbenchUser.setNickName(StringUtils.isNotEmpty(player.getNickname()) ? player.getNickname() : player.getName());
+        workbenchUser.setPhonenumber(player.getPhone());
+        workbenchUser.setSex(player.getSex() != null ? String.valueOf(player.getSex()) : "0");
+        workbenchUser.setAvatar(player.getAvatar());
+        workbenchUser.setPassword(player.getPassword());
+        workbenchUser.setStatus("0");
+        workbenchUser.setDelFlag("0");
+        workbenchUser.setCreateBy(operator);
+        workbenchUser.setRemark(agentType == Agency.TYPE_LEVEL_ONE ? "Cocos玩家一级代理工作台账号" : "Cocos玩家二级代理工作台账号");
+        sysUserMapper.insertUser(workbenchUser);
+        if (workbenchUser.getUserId() == null) {
+            throw new InternalServerException("代理工作台账号创建失败");
+        }
+        return workbenchUser.getUserId();
+    }
+
+    private int resolveWorkbenchStatus(String playerId) {
+        SysUserAgent relation = sysUserAgentMapper.selectOne(
+                Wrappers.lambdaQuery(SysUserAgent.class)
+                        .eq(SysUserAgent::getPlayerId, playerId)
+                        .orderByDesc(SysUserAgent::getId)
+                        .last("LIMIT 1"));
+        if (relation == null || relation.getStatus() == null || relation.getStatus() != SysUserAgent.STATUS_NORMAL) {
+            return Agency.STATUS_DISABLED;
+        }
+        SysUser user = sysUserMapper.selectUserById(relation.getUserId());
+        return user != null && "0".equals(user.getStatus()) && "0".equals(user.getDelFlag())
+                ? Agency.STATUS_NORMAL : Agency.STATUS_DISABLED;
     }
 
     private void grantAgentRole(Long userId, Integer agentType) {
@@ -1507,6 +1934,7 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         dto.setTotalCommission(sumCommission(agency.getPlayerId()));
         dto.setTotalRoomFee(sumRoomFee(agency.getPlayerId()));
         dto.setStatus(resolveStatus(agency));
+        dto.setWorkbenchStatus(resolveWorkbenchStatus(agency.getPlayerId()));
         return dto;
     }
 
@@ -1532,6 +1960,7 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         dto.setId(ledger.getId());
         dto.setRoomFeeLedgerId(ledger.getRoomFeeLedgerId());
         dto.setRoomId(ledger.getRoomId());
+        dto.setFeeType(ledger.getFeeType());
         dto.setFeePlayerId(ledger.getFeePlayerId());
         dto.setFeePlayerNickname(nickname(ledger.getFeePlayerId()));
         dto.setAgentPlayerId(ledger.getAgentPlayerId());

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Executed as root by AWS Systems Manager after the game image has been pushed
-# to ECR. The public WSS listener is Nginx:9098; C++ listens privately on 19098.
+# to ECR. Public WSS is Nginx:443, with Nginx:9098 kept for compatibility;
+# C++ listens privately on 19098.
 set -Eeuo pipefail
 IFS=$'\n\t'
 
@@ -40,7 +41,7 @@ port=10086
 thread_num=4
 timer_threads=3
 access_address=${GAME_DOMAIN}:10086
-ws_address=wss://${GAME_DOMAIN}:9098/
+ws_address=wss://${GAME_DOMAIN}/
 outter_threads=3
 inner_threads=4
 
@@ -154,6 +155,7 @@ server {
     location / { return 404; }
 }
 server {
+    listen 443 ssl;
     listen 9098 ssl;
     server_name ${GAME_DOMAIN};
     ssl_certificate /etc/letsencrypt/live/${GAME_DOMAIN}/fullchain.pem;

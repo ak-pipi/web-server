@@ -23,12 +23,28 @@ source "$CONFIG_FILE"
 : "${CLIENT_DIR:=${WORKSPACE_DIR}/client_cocos/client-cocos}"
 : "${WEB_BUILD_DIR:=}"
 : "${SKIP_COCOS_BUILD:=0}"
+: "${CLIENT_ENV:=aws}"
+: "${CLIENT_ENV_CONFIG:=}"
 : "${EXPECTED_AWS_ACCOUNT_ID:=}"
 : "${EXPECTED_DEPLOY_ROLE:=}"
 export AWS_REGION AWS_DEFAULT_REGION="$AWS_REGION"
 [[ -z "${AWS_PROFILE:-}" ]] || export AWS_PROFILE
 [[ -d "$CLIENT_DIR" ]] || die "未找到 Cocos 项目: ${CLIENT_DIR}"
 CLIENT_DIR="$(cd -- "$CLIENT_DIR" && pwd)"
+[[ "$CLIENT_ENV" =~ ^[A-Za-z0-9._-]+$ ]] || die "CLIENT_ENV 只能包含字母、数字、点、下划线或短横线: ${CLIENT_ENV}"
+[[ "$CLIENT_ENV" == 'aws' ]] || die "AWS 发布脚本只能使用 CLIENT_ENV=aws，当前为: ${CLIENT_ENV}"
+if [[ -z "$CLIENT_ENV_CONFIG" ]]; then
+  CLIENT_ENV_CONFIG="${CLIENT_DIR}/config/env.${CLIENT_ENV}.json"
+fi
+[[ -f "$CLIENT_ENV_CONFIG" ]] || die "未找到 Cocos 环境配置: ${CLIENT_ENV_CONFIG}"
+CLIENT_ENVIRONMENT_NAME="$(jq -r --arg fallback "$CLIENT_ENV" '.environment // $fallback' "$CLIENT_ENV_CONFIG")"
+CLIENT_API_BASE_URL="$(jq -er '.apiBaseUrl' "$CLIENT_ENV_CONFIG")"
+[[ "$CLIENT_API_BASE_URL" =~ ^https?:// ]] || die "Cocos 环境配置 apiBaseUrl 必须以 http:// 或 https:// 开头: ${CLIENT_API_BASE_URL}"
+if [[ "$CLIENT_ENV" == 'aws' ]]; then
+  EXPECTED_CLIENT_API_BASE_URL="https://${API_DOMAIN}"
+  [[ "$CLIENT_API_BASE_URL" == "$EXPECTED_CLIENT_API_BASE_URL" ]] || \
+    die "Cocos AWS apiBaseUrl(${CLIENT_API_BASE_URL}) 与 API_DOMAIN(${EXPECTED_CLIENT_API_BASE_URL}) 不一致。请同步 config/env.aws.json 或 deploy/aws/config.env。"
+fi
 
 CURRENT_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 CALLER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
@@ -71,8 +87,9 @@ fi
 [[ -f "${WEB_BUILD_DIR}/index.html" ]] || die "未找到网页构建产物 ${WEB_BUILD_DIR}/index.html。请检查 WEB_BUILD_DIR 或 Cocos 构建日志。"
 
 RUNTIME_CONFIG_PATH="${WEB_BUILD_DIR}/config.json"
-jq -n --arg apiBaseUrl "https://${API_DOMAIN}" \
-  '{environment:"production", apiBaseUrl:$apiBaseUrl}' > "$RUNTIME_CONFIG_PATH"
+jq -n --arg environment "$CLIENT_ENVIRONMENT_NAME" --arg apiBaseUrl "$CLIENT_API_BASE_URL" \
+  '{environment:$environment, apiBaseUrl:$apiBaseUrl}' > "$RUNTIME_CONFIG_PATH"
+printf '写入 Cocos 运行配置: %s -> %s\n' "$CLIENT_ENV_CONFIG" "$CLIENT_API_BASE_URL"
 
 printf '上传网页资源到私有 S3 Bucket %s…\n' "$WEB_BUCKET"
 aws s3 sync "${WEB_BUILD_DIR}/" "s3://${WEB_BUCKET}/" --delete \

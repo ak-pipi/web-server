@@ -56,7 +56,7 @@ POST /player/game/create
     "msg": "操作成功",
     "data": {
         "address": "192.168.1.100:9001",
-        "wsAddress": "ws://192.168.1.100:9090/game",
+        "wsAddress": "wss://game.example.com:9098/game",
         "venueId": "abc123def456"
     }
 }

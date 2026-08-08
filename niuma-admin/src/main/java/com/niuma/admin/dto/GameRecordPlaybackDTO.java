@@ -22,6 +22,8 @@ public class GameRecordPlaybackDTO {
     private Boolean hasReplay;
     private Integer retentionDays;
     private String expireTime;
+    private String traceStartTime;
+    private String traceEndTime;
     private String format;
     private String codec;
     private String time;

@@ -11,6 +11,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 public class AgencyCommissionQueryDTO extends PageBody {
     private String roomId;
+    private String feeType;
     private String feePlayerId;
     private String agentPlayerId;
     private Integer agentType;

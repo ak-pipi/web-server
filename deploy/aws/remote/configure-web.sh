@@ -16,6 +16,7 @@ WEB_JAR_KEY="$(value webJarKey)"
 SCHEMA_KEY="$(value schemaKey)"
 MIGRATION_PREFIX="$(value migrationPrefix)"
 MIGRATION_MANIFEST_KEY="$(value migrationManifestKey)"
+MIGRATION_BASELINE="$(value migrationBaseline)"
 DB_ENDPOINT="$(value databaseEndpoint)"
 DB_SECRET_ARN="$(value databaseSecretArn)"
 REDIS_SECRET_ARN="$(value redisSecretArn)"
@@ -84,29 +85,78 @@ for queue_name in game.settle.queue game.settle.dlq risk.data.queue risk.data.dl
   rabbitmq_admin declare queue name="$queue_name" durable=true
 done
 
+mysql_client() {
+  # `docker run -i` inherits this function's standard input. Keep it only for
+  # SQL-file imports; otherwise an `-e` query inside a `while read` loop would
+  # consume the remaining migration manifest.
+  local docker_args=(--rm --network host -e MYSQL_PWD)
+  if [[ "$#" -eq 0 ]]; then
+    docker_args+=(-i)
+  fi
+  MYSQL_PWD="$DB_PASSWORD" docker run "${docker_args[@]}" \
+    mysql:8.0 mysql --default-character-set=utf8mb4 --ssl-mode=REQUIRED \
+    -h "$DB_ENDPOINT" -u "$DB_USER" niuma "$@"
+}
+
 if [[ "$INITIALIZE_DATABASE" == '1' ]]; then
   # The supplied dump contains DROP TABLE statements. This is deliberately an
   # explicit first-install action, not a normal release action.
   install -d -m 0700 /opt/niuma/sql
   aws s3 cp "s3://${BUCKET}/${SCHEMA_KEY}" /opt/niuma/sql/niuma.sql
-  MYSQL_PWD="$DB_PASSWORD" docker run --rm --network host -e MYSQL_PWD \
-    -i mysql:8.0 mysql --ssl-mode=REQUIRED -h "$DB_ENDPOINT" -u "$DB_USER" niuma < /opt/niuma/sql/niuma.sql
-  install -d -m 0700 /opt/niuma/sql/migrations
-  aws s3 cp "s3://${BUCKET}/${MIGRATION_MANIFEST_KEY}" /opt/niuma/sql/migrations.txt
+  mysql_client < /opt/niuma/sql/niuma.sql
+fi
+
+# 正常发布也执行新增迁移。旧部署没有迁移记录时，先登记至 v13 基线，
+# 以免对既有数据库重复执行早期非幂等脚本；v14 及之后的脚本会自动执行一次。
+install -d -m 0700 /opt/niuma/sql/migrations
+aws s3 cp "s3://${BUCKET}/${MIGRATION_MANIFEST_KEY}" /opt/niuma/sql/migrations.txt
+mysql_client -e "CREATE TABLE IF NOT EXISTS schema_migration (migration_name varchar(128) NOT NULL, applied_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (migration_name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='发布 SQL 迁移记录'"
+MIGRATION_BASELINE_APPLIED="$(mysql_client -N -B -e "SELECT COUNT(*) FROM schema_migration WHERE migration_name = '${MIGRATION_BASELINE}'")"
+
+# A failed bootstrap may leave the tracker table with just its first marker.
+# Treat any existing database without the complete baseline identically to a
+# database without a tracker, so retries do not run old migrations half-way.
+if [[ "$INITIALIZE_DATABASE" != '1' && "$MIGRATION_BASELINE_APPLIED" == '0' ]]; then
+  baseline_found=0
   while IFS= read -r migration_name; do
     [[ -n "$migration_name" && "$migration_name" != \#* ]] || continue
-    [[ "$migration_name" == *.sql && "$migration_name" != */* ]] || {
+    [[ "$migration_name" =~ ^[A-Za-z0-9._-]+\.sql$ ]] || {
       printf '非法 SQL 迁移文件名: %s\n' "$migration_name" >&2
       exit 1
     }
-    migration="/opt/niuma/sql/migrations/${migration_name}"
-    aws s3 cp "s3://${BUCKET}/${MIGRATION_PREFIX}/${migration_name}" "$migration"
-    MYSQL_PWD="$DB_PASSWORD" docker run --rm --network host -e MYSQL_PWD \
-      -i mysql:8.0 mysql --ssl-mode=REQUIRED -h "$DB_ENDPOINT" -u "$DB_USER" niuma < "$migration"
+    mysql_client -e "INSERT IGNORE INTO schema_migration (migration_name) VALUES ('${migration_name}')"
+    if [[ "$migration_name" == "$MIGRATION_BASELINE" ]]; then
+      baseline_found=1
+      break
+    fi
   done < /opt/niuma/sql/migrations.txt
-  if [[ "$RESET_PLAYER_DATA" == '1' ]]; then
-    printf '已执行玩家数据重置迁移；确认该操作仅用于新规则重置场景。\n'
+  [[ "$baseline_found" == '1' ]] || {
+    printf '未在迁移清单中找到基线 SQL: %s\n' "$MIGRATION_BASELINE" >&2
+    exit 1
+  }
+  printf '已为存量数据库登记迁移基线：%s\n' "$MIGRATION_BASELINE"
+fi
+
+while IFS= read -r migration_name; do
+  [[ -n "$migration_name" && "$migration_name" != \#* ]] || continue
+  [[ "$migration_name" =~ ^[A-Za-z0-9._-]+\.sql$ ]] || {
+    printf '非法 SQL 迁移文件名: %s\n' "$migration_name" >&2
+    exit 1
+  }
+  applied="$(mysql_client -N -B -e "SELECT COUNT(*) FROM schema_migration WHERE migration_name = '${migration_name}'")"
+  if [[ "$applied" != '0' ]]; then
+    printf 'SQL 迁移已执行，跳过：%s\n' "$migration_name"
+    continue
   fi
+  migration="/opt/niuma/sql/migrations/${migration_name}"
+  aws s3 cp "s3://${BUCKET}/${MIGRATION_PREFIX}/${migration_name}" "$migration"
+  printf '执行 SQL 迁移：%s\n' "$migration_name"
+  mysql_client < "$migration"
+  mysql_client -e "INSERT INTO schema_migration (migration_name) VALUES ('${migration_name}')"
+done < /opt/niuma/sql/migrations.txt
+
+if [[ "$RESET_PLAYER_DATA" == '1' ]]; then
+  printf '已执行玩家数据重置迁移；确认该操作仅用于新规则重置场景。\n'
 fi
 
 write_env() { printf 'export %s=%q\n' "$1" "$2"; }
@@ -155,7 +205,10 @@ SuccessExitStatus=143
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now niuma-web
+# `enable --now` leaves an already-active service on the previous JAR. Every
+# application release must restart it after the new artifact is downloaded.
+systemctl enable niuma-web
+systemctl restart niuma-web
 
 # First expose the ACME HTTP challenge. The full TLS proxy is written only after
 # a certificate has been successfully issued.

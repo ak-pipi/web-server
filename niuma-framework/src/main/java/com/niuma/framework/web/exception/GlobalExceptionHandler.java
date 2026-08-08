@@ -4,6 +4,7 @@ import javax.servlet.http.HttpServletRequest;
 
 import com.niuma.common.constant.ResultCodeEnum;
 import com.niuma.common.exception.http.*;
+import com.niuma.common.exception.user.UserException;
 import com.niuma.common.exception.user.UserPasswordNotMatchException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -159,8 +160,17 @@ public class GlobalExceptionHandler
      * @return
      */
     @ExceptionHandler(UserPasswordNotMatchException.class)
-    @ResponseStatus(org.springframework.http.HttpStatus.NOT_FOUND)
+    @ResponseStatus(org.springframework.http.HttpStatus.BAD_REQUEST)
     public AjaxResult handleUserPasswordNotMatchException(UserPasswordNotMatchException e) {
+        return AjaxResult.error(ResultCodeEnum.BAD_REQUEST.getCode(), e.getMessage());
+    }
+
+    /**
+     * 验证码错误、验证码过期等可由用户修正的登录输入异常。
+     */
+    @ExceptionHandler(UserException.class)
+    @ResponseStatus(org.springframework.http.HttpStatus.BAD_REQUEST)
+    public AjaxResult handleUserException(UserException e) {
         return handleHttpException(e.getCode(), e.getMessage());
     }
 

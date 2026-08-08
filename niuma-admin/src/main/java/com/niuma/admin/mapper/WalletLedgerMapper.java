@@ -1,6 +1,7 @@
 package com.niuma.admin.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.niuma.admin.dto.AgencyStatAmountDTO;
 import com.niuma.admin.entity.WalletLedger;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
@@ -65,4 +66,13 @@ public interface WalletLedgerMapper extends BaseMapper<WalletLedger> {
     Long countByBizTypeAndTimeRange(@Param("startTime") LocalDateTime startTime,
                                      @Param("endTime") LocalDateTime endTime,
                                      @Param("bizType") String bizType);
+
+    /**
+     * 按玩家汇总当天代理统计需要的人工增减积分。
+     */
+    List<AgencyStatAmountDTO> sumAgencyStatsByUserIds(@Param("userIds") List<String> userIds,
+                                                      @Param("walletType") String walletType,
+                                                      @Param("bizType") String bizType,
+                                                      @Param("startTime") LocalDateTime startTime,
+                                                      @Param("endTime") LocalDateTime endTime);
 }

@@ -3,6 +3,8 @@ package com.niuma.admin.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * C++ 游戏服上报的钱包变动事件。
  */
@@ -28,6 +30,12 @@ public class WalletChangeEventDTO {
 
     @JsonProperty("ref_no")
     private String refNo;
+
+    @JsonProperty("commission_player_ids")
+    private List<String> commissionPlayerIds;
+
+    @JsonProperty("commission_amounts")
+    private List<Long> commissionAmounts;
 
     private String remark;
 }

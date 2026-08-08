@@ -18,6 +18,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 处理 C++ 游戏服上报的钱包变动事件。
@@ -28,6 +30,7 @@ public class WalletChangeEventProcessor {
     private static final String EVENT_GAME_WIN = "GAME_WIN";
     private static final String EVENT_GAME_LOSE = "GAME_LOSE";
     private static final String EVENT_ROOM_FEE = "ROOM_FEE";
+    private static final String EVENT_SHUFFLE_FEE = "SHUFFLE_FEE";
 
     @Autowired
     private JsonUtils jsonUtils;
@@ -72,7 +75,13 @@ public class WalletChangeEventProcessor {
                     LedgerBizType.ROOM_FEE.getCode(), refNo, remark);
             RoomFeeLedger ledger = createRoomFeeLedger(event, walletType, amount, remark);
             roomFeeLedgerMapper.insert(ledger);
-            agencyManageService.processRoomFee(ledger);
+            agencyManageService.processRoomFee(ledger, resolveCommissionShares(event, amount));
+        } else if (EVENT_SHUFFLE_FEE.equals(eventType)) {
+            walletService.decrease(event.getUserId(), walletType, amount,
+                    LedgerBizType.SHUFFLE_FEE.getCode(), refNo, remark);
+            RoomFeeLedger ledger = createRoomFeeLedger(event, walletType, amount, remark);
+            roomFeeLedgerMapper.insert(ledger);
+            agencyManageService.processRoomFee(ledger, resolveCommissionShares(event, amount));
         } else {
             throw new BadRequestException("不支持的钱包事件类型: " + event.getEventType());
         }
@@ -114,11 +123,37 @@ public class WalletChangeEventProcessor {
         RoomFeeLedger ledger = new RoomFeeLedger();
         ledger.setUserId(event.getUserId());
         ledger.setRoomId(StringUtils.isNotEmpty(event.getBizId()) ? event.getBizId() : "");
-        ledger.setFeeType("GAME_ROOM");
+        ledger.setFeeType(EVENT_SHUFFLE_FEE.equals(StringUtils.trim(event.getEventType()).toUpperCase())
+                ? RoomFeeLedger.FEE_TYPE_SHUFFLE
+                : RoomFeeLedger.FEE_TYPE_GAME_ROOM);
         ledger.setFeeAmount(amount);
         ledger.setPayWalletType(walletType);
         ledger.setRemark(remark);
         ledger.setCreateTime(LocalDateTime.now());
         return ledger;
+    }
+
+    private Map<String, Long> resolveCommissionShares(WalletChangeEventDTO event, Long amount) {
+        if (event.getCommissionPlayerIds() == null || event.getCommissionAmounts() == null
+                || event.getCommissionPlayerIds().size() != event.getCommissionAmounts().size()) {
+            return null;
+        }
+        LinkedHashMap<String, Long> shares = new LinkedHashMap<>();
+        long total = 0L;
+        for (int i = 0; i < event.getCommissionPlayerIds().size(); i++) {
+            String playerId = StringUtils.trim(event.getCommissionPlayerIds().get(i));
+            Long shareAmount = event.getCommissionAmounts().get(i);
+            if (StringUtils.isEmpty(playerId) || shareAmount == null || shareAmount <= 0) {
+                continue;
+            }
+            shares.put(playerId, shares.getOrDefault(playerId, 0L) + shareAmount);
+            total += shareAmount;
+        }
+        if (shares.isEmpty() || total != Math.abs(amount)) {
+            log.warn("[钱包事件] 返佣拆分无效，回退到扣费玩家: refNo={}, amount={}, shareTotal={}",
+                    event.getRefNo(), amount, total);
+            return null;
+        }
+        return shares;
     }
 }

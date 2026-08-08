@@ -29,7 +29,8 @@
 |---:|---|---|---|
 | 80 | 两台 EC2 | 公网 | 仅用于 Let's Encrypt HTTP-01 校验；Web 随后会跳转至 HTTPS |
 | 443 | Web EC2 | 公网 | Java API 的 HTTPS，由 Nginx 反向代理至 `127.0.0.1:18080` |
-| 9098 | 游戏 EC2 | 公网 | WSS，由 Nginx TLS 卸载后转至本机 C++ `19098` |
+| 443 | 游戏 EC2 | 公网 | WSS，由 Nginx TLS 卸载后转至本机 C++ `19098` |
+| 9098 | 游戏 EC2 | 公网 | 兼容旧配置的 WSS，同样转至本机 C++ `19098` |
 | 10086 | 游戏 EC2 | 公网 | C++ 原生 TCP 游戏连接 |
 | 3306 | RDS | 仅 Web/Game 安全组 | MySQL |
 | 6379 | Web EC2 | 仅 Game 安全组 | Redis；Java 本机也访问 |
@@ -153,7 +154,7 @@ AWS_PROFILE=<管理员-profile> AWS_REGION=ap-east-1 \
    5. 仅当 `INITIALIZE_DATABASE=1` 时，用临时 MySQL 客户端导入基础 SQL，再按 `scripts/publish.sh` 写出的清单顺序执行迁移 SQL；`v12_reset_players_for_new_rules.sql` 只有 `RESET_PLAYER_DATA=1` 时才会执行；
    6. 用 Docker 版 Certbot 为 API 域名申请证书，写入 Nginx HTTPS 配置和每日续期任务；
    7. 用 SSM 在游戏 EC2 写入运行时 `server.ini`，其中 C++ WebSocket 改为本机 `19098`；拉取 ECR 镜像并以 host network 启动；
-   8. 为游戏域名申请证书，Nginx 在公网 `9098` 终止 WSS，再代理给 C++ `19098`。
+   8. 为游戏域名申请证书，Nginx 在公网 `443` 终止 WSS，并保留 `9098` 兼容入口，再代理给 C++ `19098`。
    9. 构建 `web_ui/web-ui`，上传到 `WebUiBucket` 的 `/niuma66-ui/` 前缀，并刷新 web_ui CloudFront 缓存。
 
 5. web_ui 仍可用 `publish-web-ui.sh` 单独发布。CloudFront 会把页面请求交给 S3，把 `/niuma66/*` API 请求转发到 `API_DOMAIN` 并去掉 `/niuma66` 前缀。若临时只发布 server + web_server，执行 `PUBLISH_WEB_UI=0 ./deploy/aws/scripts/publish.sh`。
@@ -164,7 +165,7 @@ AWS_PROFILE=<管理员-profile> AWS_REGION=ap-east-1 \
 1. 控制台检查两台 EC2 已出现在 Systems Manager 的 **Managed nodes** 中。
 2. Web 服务：`curl -I https://api.example.com/` 应返回任意正常 HTTP 状态（应用路径可因前端路由而为 200/302/404）。
 3. TLS：浏览器或 `openssl s_client -connect api.example.com:443 -servername api.example.com` 检查证书域名和有效期。
-4. WSS：使用客户端或 WebSocket 测试工具连接 `wss://game.example.com:9098/`。Nginx 日志和游戏容器日志中不能出现 upstream connection refused。
+4. WSS：使用客户端或 WebSocket 测试工具连接 `wss://game.example.com/`。Nginx 日志和游戏容器日志中不能出现 upstream connection refused。
 5. TCP：使用真实客户端连接 `game.example.com:10086`；在 EC2 上用 SSM 执行 `docker logs --tail 100 niuma-game`，确认游戏服已经连接 MySQL、Redis 和 RabbitMQ。
 6. web_ui：访问 `WebUiUrl` 或 `https://admin.example.com/`，确认登录页静态资源来自 S3，验证码和登录请求经 `/niuma66/*` 正常到达 API。
 7. RDS：在 RDS 控制台确认 `Publicly accessible = No`、备份保留 7 天、删除保护已打开；做一次手动快照，命名例如 `niuma-before-public-beta`。

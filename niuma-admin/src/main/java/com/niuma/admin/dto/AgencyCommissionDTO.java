@@ -12,6 +12,7 @@ public class AgencyCommissionDTO {
     private Long id;
     private Long roomFeeLedgerId;
     private String roomId;
+    private String feeType;
     private String feePlayerId;
     private String feePlayerNickname;
     private String agentPlayerId;

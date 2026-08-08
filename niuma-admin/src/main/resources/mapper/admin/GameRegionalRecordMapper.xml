@@ -233,4 +233,90 @@
     <select id="getChangshaMahjongPlayback" resultType="String">
         select `playback` from `game_changsha_mahjong_record` where `id` = #{id}
     </select>
+
+    <sql id="player_game_record_union">
+        select 1021 as `gameType`, '麻将' as `gameName`, `id`, `venue_id` as `venueId`, `round_no` as `roundNo`,
+               `time`, `playback`,
+               case
+                 when `player_id0` = #{playerId} then ifnull(`win_gold0`, 0)
+                 when `player_id1` = #{playerId} then ifnull(`win_gold1`, 0)
+                 when `player_id2` = #{playerId} then ifnull(`win_gold2`, 0)
+                 when `player_id3` = #{playerId} then ifnull(`win_gold3`, 0)
+                 else 0
+               end as `delta`
+        from `game_mahjong_record`
+        where `player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId}
+        union all
+        select 1031 as `gameType`, '桃江麻将' as `gameName`, `id`, `venue_id` as `venueId`, `round_no` as `roundNo`,
+               `time`, `playback`,
+               case
+                 when `player_id0` = #{playerId} then ifnull(`wingold0`, 0)
+                 when `player_id1` = #{playerId} then ifnull(`wingold1`, 0)
+                 when `player_id2` = #{playerId} then ifnull(`wingold2`, 0)
+                 when `player_id3` = #{playerId} then ifnull(`wingold3`, 0)
+                 else 0
+               end as `delta`
+        from `game_taojiang_mahjong_record`
+        where `player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId}
+        union all
+        select 1032 as `gameType`, '红中麻将' as `gameName`, `id`, `venue_id` as `venueId`, `round_no` as `roundNo`,
+               `time`, `playback`,
+               case
+                 when `player_id0` = #{playerId} then ifnull(`wingold0`, 0)
+                 when `player_id1` = #{playerId} then ifnull(`wingold1`, 0)
+                 when `player_id2` = #{playerId} then ifnull(`wingold2`, 0)
+                 when `player_id3` = #{playerId} then ifnull(`wingold3`, 0)
+                 else 0
+               end as `delta`
+        from `game_hongzhong_mahjong_record`
+        where `player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId}
+        union all
+        select 1033 as `gameType`, '跑得快' as `gameName`, `id`, `venue_id` as `venueId`, `round_no` as `roundNo`,
+               `time`, `playback`,
+               case
+                 when `player_id0` = #{playerId} then ifnull(`wingold0`, 0)
+                 when `player_id1` = #{playerId} then ifnull(`wingold1`, 0)
+                 else 0
+               end as `delta`
+        from `game_paodekuai_record`
+        where `player_id0` = #{playerId} or `player_id1` = #{playerId}
+        union all
+        select 1034 as `gameType`, '长沙麻将' as `gameName`, `id`, `venue_id` as `venueId`, `round_no` as `roundNo`,
+               `time`, `playback`,
+               case
+                 when `player_id0` = #{playerId} then ifnull(`wingold0`, 0)
+                 when `player_id1` = #{playerId} then ifnull(`wingold1`, 0)
+                 when `player_id2` = #{playerId} then ifnull(`wingold2`, 0)
+                 when `player_id3` = #{playerId} then ifnull(`wingold3`, 0)
+                 else 0
+               end as `delta`
+        from `game_changsha_mahjong_record`
+        where `player_id0` = #{playerId} or `player_id1` = #{playerId} or `player_id2` = #{playerId} or `player_id3` = #{playerId}
+    </sql>
+
+    <select id="summarizePlayerGameRecords" resultType="java.util.HashMap">
+        select `gameType`, `gameName`,
+               count(*) as `totalRounds`,
+               sum(case when `delta` &gt; 0 then 1 else 0 end) as `winCount`,
+               sum(case when `delta` &lt; 0 then 1 else 0 end) as `loseCount`,
+               sum(`delta`) as `totalScoreDelta`,
+               sum(case when `time` &gt;= #{todayStart} then 1 else 0 end) as `todayRounds`,
+               max(`time`) as `latestTime`
+        from (
+            <include refid="player_game_record_union"/>
+        ) records
+        group by `gameType`, `gameName`
+        order by `totalRounds` desc, `gameType` asc
+    </select>
+
+    <select id="getRecentPlayerGameRecords" resultType="java.util.HashMap">
+        select `gameType`, `gameName`, `id`, `venueId`, `roundNo`, `time`, `delta`,
+               case when `playback` is not null and `playback` != '' then true else false end as `hasReplay`
+        from (
+            <include refid="player_game_record_union"/>
+        ) records
+        where `time` &gt;= #{cutoff}
+        order by `time` desc, `id` desc
+        limit #{limit}
+    </select>
 </mapper>

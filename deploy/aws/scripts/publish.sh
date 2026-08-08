@@ -26,6 +26,7 @@ source "$CONFIG_FILE"
 : "${GAME_IMAGE_LOCAL:=}"
 : "${REMOTE_GAME_BUILD:=auto}"
 : "${PUBLISH_WEB_UI:=1}"
+: "${MIGRATION_BASELINE:=v13_add_system_log_tables.sql}"
 : "${GAME_SERVER_DIR:=${WORKSPACE_DIR}/server}"
 : "${SQL_DIR:=${WEB_SERVER_DIR}/sql}"
 : "${EXPECTED_AWS_ACCOUNT_ID:=}"
@@ -115,6 +116,49 @@ SQL_MIGRATIONS=(
 if [[ "$RESET_PLAYER_DATA" == '1' ]]; then
   SQL_MIGRATIONS+=("${SQL_DIR}/v12_reset_players_for_new_rules.sql")
 fi
+SQL_MIGRATIONS+=(
+  "${SQL_DIR}/v13_add_system_log_tables.sql"
+  "${SQL_DIR}/v14_agent_workbench_and_menu_cleanup.sql"
+  "${SQL_DIR}/v15_fix_game_management_menu_encoding.sql"
+  "${SQL_DIR}/v16_permanent_agency_invite_codes.sql"
+)
+if [[ "$RESET_PLAYER_DATA" == '1' ]]; then
+  SQL_MIGRATIONS+=("${SQL_DIR}/v17_player_id_invite_binding_reset.sql")
+fi
+SQL_MIGRATIONS+=("${SQL_DIR}/v18_restore_register_invite_codes.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v19_unify_super_admin_login.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v20_player_game_restrictions.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v21_member_remark.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v22_shuffle_fee_income_box.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v23_remove_unused_legacy_games.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v24_restore_regional_single_round_districts.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v25_income_box_collect_id.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v26_income_box_partial_withdraw.sql")
+
+validate_sql_migration_manifest() {
+  local migration migration_name listed listed_path
+  for migration in "${SQL_DIR}"/v*.sql; do
+    [[ -e "$migration" ]] || continue
+    migration_name="$(basename "$migration")"
+    if [[ "$RESET_PLAYER_DATA" != '1' ]]; then
+      case "$migration_name" in
+        v12_reset_players_for_new_rules.sql|v17_player_id_invite_binding_reset.sql)
+          continue
+          ;;
+      esac
+    fi
+    listed=0
+    for listed_path in "${SQL_MIGRATIONS[@]}"; do
+      if [[ "$(basename "$listed_path")" == "$migration_name" ]]; then
+        listed=1
+        break
+      fi
+    done
+    [[ "$listed" == '1' ]] || die "SQL 迁移文件未加入发布清单：${migration_name}"
+  done
+}
+
+validate_sql_migration_manifest
 
 printf '构建 Java Web 制品…\n'
 (cd "${WEB_SERVER_DIR}" && mvn -q -DskipTests clean package)
@@ -200,6 +244,7 @@ CONFIG_JSON="$(jq -cn \
   --arg schemaKey "$SCHEMA_KEY" \
   --arg migrationPrefix "$MIGRATION_PREFIX" \
   --arg migrationManifestKey "$MIGRATION_MANIFEST_KEY" \
+  --arg migrationBaseline "$MIGRATION_BASELINE" \
   --arg gameImage "$GAME_IMAGE" \
   --arg databaseEndpoint "$DATABASE_ENDPOINT" \
   --arg databaseSecretArn "$DATABASE_SECRET_ARN" \
@@ -212,7 +257,7 @@ CONFIG_JSON="$(jq -cn \
   --arg tlsEmail "$TLS_EMAIL" \
   --arg initializeDatabase "$INITIALIZE_DATABASE" \
   --arg resetPlayerData "$RESET_PLAYER_DATA" \
-  '{region:$region,bucket:$bucket,webJarKey:$webJarKey,schemaKey:$schemaKey,migrationPrefix:$migrationPrefix,migrationManifestKey:$migrationManifestKey,gameImage:$gameImage,databaseEndpoint:$databaseEndpoint,databaseSecretArn:$databaseSecretArn,redisSecretArn:$redisSecretArn,rabbitSecretArn:$rabbitSecretArn,applicationSecretArn:$applicationSecretArn,webPrivateIp:$webPrivateIp,apiDomain:$apiDomain,gameDomain:$gameDomain,tlsEmail:$tlsEmail,initializeDatabase:$initializeDatabase,resetPlayerData:$resetPlayerData}')"
+  '{region:$region,bucket:$bucket,webJarKey:$webJarKey,schemaKey:$schemaKey,migrationPrefix:$migrationPrefix,migrationManifestKey:$migrationManifestKey,migrationBaseline:$migrationBaseline,gameImage:$gameImage,databaseEndpoint:$databaseEndpoint,databaseSecretArn:$databaseSecretArn,redisSecretArn:$redisSecretArn,rabbitSecretArn:$rabbitSecretArn,applicationSecretArn:$applicationSecretArn,webPrivateIp:$webPrivateIp,apiDomain:$apiDomain,gameDomain:$gameDomain,tlsEmail:$tlsEmail,initializeDatabase:$initializeDatabase,resetPlayerData:$resetPlayerData}')"
 CONFIG_B64="$(printf '%s' "$CONFIG_JSON" | base64 | tr -d '\n')"
 
 "${SCRIPT_DIR}/ssm-run.sh" "$WEB_INSTANCE_ID" "${AWS_DIR}/remote/configure-web.sh" "$CONFIG_B64"
@@ -225,5 +270,6 @@ fi
 
 printf '\n发布完成。请验证：\n'
 printf '  HTTPS API: https://%s/\n' "$API_DOMAIN"
-printf '  WSS: wss://%s:9098/\n' "$GAME_DOMAIN"
+printf '  WSS: wss://%s/\n' "$GAME_DOMAIN"
+printf '  WSS legacy port: wss://%s:9098/\n' "$GAME_DOMAIN"
 printf '  TCP: %s:10086\n' "$GAME_DOMAIN"

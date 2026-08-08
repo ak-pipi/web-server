@@ -6,6 +6,8 @@ import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.page.PageBody;
 import com.niuma.common.page.PageResult;
 
+import java.util.Map;
+
 /**
  * 后台代理管理服务。
  */
@@ -22,15 +24,19 @@ public interface IAgencyManageService {
 
     AjaxResult updateStatus(String agentPlayerId, AgencyStatusUpdateDTO dto);
 
-    AjaxResult resetInviteCode(String agentPlayerId);
-
     AjaxResult bindByInviteCode(String playerId, String inviteCode, String bindSource, Long operatorUserId);
 
     AjaxResult bindCurrentPlayerByInviteCode(String inviteCode);
 
+    AjaxResult bindCurrentAgentByPlayerId(String playerId);
+
     AjaxResult getCurrentAgentInviteCode();
 
+    AgencyInviteCode ensureDefaultInviteCode(String agentPlayerId, String operator);
+
     PageResult<AgencyInviteCode> invitePage(PageBody dto);
+
+    PageResult<AgencyStatsDTO> statsPage(AgencyStatsQueryDTO dto);
 
     PageResult<AgencyBindingDTO> bindingPage(AgencyBindingQueryDTO dto);
 
@@ -55,4 +61,6 @@ public interface IAgencyManageService {
     AjaxResult playerStats(String playerId);
 
     void processRoomFee(RoomFeeLedger roomFeeLedger);
+
+    void processRoomFee(RoomFeeLedger roomFeeLedger, Map<String, Long> commissionShares);
 }

@@ -29,6 +29,7 @@ CREATE TABLE `agency` (
   `level` int NOT NULL COMMENT '代理等级',
   `junior_count` int NOT NULL DEFAULT '0' COMMENT '下级玩家((包含下级代理的下级玩家)数量',
   `total_reward` bigint DEFAULT '0' COMMENT '累计已领取奖励',
+  `member_remark` varchar(10) DEFAULT NULL COMMENT '上级代理设置的成员备注',
   PRIMARY KEY (`id`),
   UNIQUE KEY `player_index` (`player_id`),
   KEY `superior_index` (`superior_id`)
@@ -197,7 +198,7 @@ CREATE TABLE `district` (
   `gold_need` int NOT NULL COMMENT '进入区域所需的最小金币数量',
   `diamond_need` int NOT NULL COMMENT '进入区域所需的最小钻石数量',
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=41 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='区域表，区域内包含任意多个场地，例如逮狗腿游戏中的新手房';
+) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='区域表，区域内包含任意多个场地';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -206,7 +207,7 @@ CREATE TABLE `district` (
 
 LOCK TABLES `district` WRITE;
 /*!40000 ALTER TABLE `district` DISABLE KEYS */;
-INSERT INTO `district` VALUES (1,'逮狗腿新手房',1500,2),(2,'逮狗腿初级房',3000,2),(3,'逮狗腿高级房',7500,0),(4,'逮狗腿大师房',15000,0),(5,'掼蛋初级房',0,2),(6,'掼蛋中级房',0,2),(7,'掼蛋高级房',0,2),(8,'掼蛋大师房',0,2),(9,'桃江麻将 台桌5 单局',0,0),(10,'桃江麻将 台桌10 单局',0,0),(11,'桃江麻将 台桌25 单局',0,0),(12,'桃江麻将 台桌1 8局',0,0),(13,'桃江麻将 台桌2 8局',0,0),(14,'桃江麻将 台桌5 8局',0,0),(15,'桃江麻将 台桌10 8局',0,0),(16,'桃江麻将 台桌20 8局',0,0),(17,'红中麻将 底注1 8局',0,0),(18,'红中麻将 底注2 8局',0,0),(19,'红中麻将 底注5 8局',0,0),(20,'红中麻将 底注10 8局',0,0),(21,'长沙麻将 底注1 8局',0,0),(22,'长沙麻将 底注2 8局',0,0),(23,'长沙麻将 底注5 8局',0,0),(24,'长沙麻将 底注10 8局',0,0),(25,'跑得快 底注1 8局',0,0),(26,'跑得快 底注2 8局',0,0),(27,'跑得快 底注5 8局',0,0),(28,'跑得快 底注10 8局',0,0),(29,'歪胡子 底注1 8局',0,0),(30,'歪胡子 底注2 8局',0,0),(31,'歪胡子 底注5 8局',0,0),(32,'歪胡子 底注10 8局',0,0),(33,'沅江千分 底注1 8局',0,0),(34,'沅江千分 底注2 8局',0,0),(35,'沅江千分 底注5 8局',0,0),(36,'沅江千分 底注10 8局',0,0),(37,'斗地主 底注1 8局',0,0),(38,'斗地主 底注2 8局',0,0),(39,'斗地主 底注5 8局',0,0),(40,'斗地主 底注10 8局',0,0);
+INSERT INTO `district` VALUES (9,'桃江麻将 台桌5 单局',0,0),(10,'桃江麻将 台桌10 单局',0,0),(11,'桃江麻将 台桌25 单局',0,0),(12,'桃江麻将 台桌1 8局',0,0),(13,'桃江麻将 台桌2 8局',0,0),(14,'桃江麻将 台桌5 8局',0,0),(15,'桃江麻将 台桌10 8局',0,0),(16,'桃江麻将 台桌20 8局',0,0),(17,'红中麻将 台桌1 8局',0,0),(18,'红中麻将 台桌2 8局',0,0),(19,'红中麻将 台桌5 8局',0,0),(20,'红中麻将 台桌10 8局',0,0),(21,'长沙麻将 底注1 8局',0,0),(22,'长沙麻将 底注2 8局',0,0),(23,'长沙麻将 底注5 8局',0,0),(24,'长沙麻将 底注10 8局',0,0),(25,'跑得快 底注1 8局',0,0),(26,'跑得快 底注2 8局',0,0),(27,'跑得快 底注5 8局',0,0),(28,'跑得快 底注10 8局',0,0),(29,'歪胡子 底注1 8局',0,0),(30,'歪胡子 底注2 8局',0,0),(31,'歪胡子 底注5 8局',0,0),(32,'歪胡子 底注10 8局',0,0),(33,'沅江千分 底注1 8局',0,0),(34,'沅江千分 底注2 8局',0,0),(35,'沅江千分 底注5 8局',0,0),(36,'沅江千分 底注10 8局',0,0),(41,'红中麻将 台桌5 单局',0,0),(42,'红中麻将 台桌10 单局',0,0),(43,'红中麻将 台桌25 单局',0,0),(44,'红中麻将 台桌20 8局',0,0),(45,'长沙麻将 底注5 单局',0,0),(46,'长沙麻将 底注10 单局',0,0),(47,'长沙麻将 底注25 单局',0,0),(48,'长沙麻将 底注20 8局',0,0),(49,'跑得快 底注5 单局',0,0),(50,'跑得快 底注10 单局',0,0),(51,'跑得快 底注25 单局',0,0),(52,'跑得快 底注20 8局',0,0);
 /*!40000 ALTER TABLE `district` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1589,7 +1590,7 @@ CREATE TABLE `sys_user` (
 
 LOCK TABLES `sys_user` WRITE;
 /*!40000 ALTER TABLE `sys_user` DISABLE KEYS */;
-INSERT INTO `sys_user` VALUES (1,103,'admin','若依','00','ry@163.com','15888888888','1','','$2a$10$AiiL0Nr7voP8IjcmDthAJ.dmn2i2/JWzhEG7wPfOTxgP6GGTc6Tru','0','0','113.12.65.33','2026-04-01 17:39:33','admin','2024-08-30 17:22:39','','2026-04-01 09:39:33','管理员'),(2,105,'ry','若依','00','ry@qq.com','15666666666','1','','$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2','0','2','127.0.0.1','2024-08-30 17:22:39','admin','2024-08-30 17:22:39','',NULL,'测试员');
+INSERT INTO `sys_user` VALUES (1,103,'admin','若依','00','ry@163.com','15888888888','1','','$2a$10$TVEUV/2NhOtys0kSglhevuZoK0wHKyPRyaYnNT030uKWWZUyCiwiq','0','0','113.12.65.33','2026-04-01 17:39:33','admin','2024-08-30 17:22:39','','2026-04-01 09:39:33','管理员'),(2,105,'ry','若依','00','ry@qq.com','15666666666','1','','$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2','0','2','127.0.0.1','2024-08-30 17:22:39','admin','2024-08-30 17:22:39','',NULL,'测试员');
 /*!40000 ALTER TABLE `sys_user` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -1919,6 +1920,38 @@ CREATE TABLE `reconciliation_report` (
 LOCK TABLES `reconciliation_report` WRITE;
 /*!40000 ALTER TABLE `reconciliation_report` DISABLE KEYS */;
 /*!40000 ALTER TABLE `reconciliation_report` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
+-- Table structure for table `player_game_restriction`
+--
+
+DROP TABLE IF EXISTS `player_game_restriction`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `player_game_restriction` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `player_id` varchar(32) NOT NULL COMMENT '被限制玩家ID',
+  `game_type` int NOT NULL COMMENT '被限制游戏类型',
+  `restricted` tinyint NOT NULL DEFAULT '1' COMMENT '1-限制',
+  `operator_agent_player_id` varchar(32) DEFAULT NULL COMMENT '操作代理玩家ID',
+  `reason` varchar(255) DEFAULT NULL COMMENT '原因',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_player_game_restriction` (`player_id`, `game_type`),
+  KEY `idx_player_game_restriction_player` (`player_id`, `restricted`),
+  KEY `idx_player_game_restriction_game` (`game_type`, `restricted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='玩家玩法限制';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `player_game_restriction`
+--
+
+LOCK TABLES `player_game_restriction` WRITE;
+/*!40000 ALTER TABLE `player_game_restriction` DISABLE KEYS */;
+/*!40000 ALTER TABLE `player_game_restriction` ENABLE KEYS */;
 UNLOCK TABLES;
 
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

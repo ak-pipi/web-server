@@ -20,4 +20,8 @@ public class AgencyListDTO {
     private Long totalRoomFee;
     private Long totalCommission;
     private Integer status;
+    /**
+     * 代理工作台账号状态，0-可登录，1-已撤销。
+     */
+    private Integer workbenchStatus;
 }

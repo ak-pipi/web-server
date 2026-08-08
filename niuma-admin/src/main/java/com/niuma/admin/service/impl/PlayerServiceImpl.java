@@ -7,6 +7,7 @@ import com.niuma.admin.constant.NiuMaCodeEnum;
 import com.niuma.admin.constant.NiuMaConstants;
 import com.niuma.admin.constant.NiuMaRedisKeys;
 import com.niuma.admin.dto.*;
+import com.niuma.admin.entity.Agency;
 import com.niuma.admin.entity.Capital;
 import com.niuma.admin.entity.Player;
 import com.niuma.admin.entity.Venue;
@@ -16,10 +17,13 @@ import com.niuma.admin.mapper.*;
 import com.niuma.admin.service.ICapitalService;
 import com.niuma.admin.service.IAgencyManageService;
 import com.niuma.admin.service.IPlayerService;
+import com.niuma.admin.utils.WebSocketAddressUtils;
 import com.niuma.common.constant.CacheConstants;
 import com.niuma.common.constant.Constants;
 import com.niuma.common.constant.ResultCodeEnum;
+import com.niuma.common.constant.UserConstants;
 import com.niuma.common.core.domain.AjaxResult;
+import com.niuma.common.core.domain.entity.SysUser;
 import com.niuma.common.core.domain.model.LoginPlayer;
 import com.niuma.common.core.redis.RedisCache;
 import com.niuma.common.core.redis.RedisPrimitive;
@@ -33,6 +37,7 @@ import com.niuma.common.utils.StringUtils;
 import com.niuma.common.utils.ip.IpUtils;
 import com.niuma.framework.manager.AsyncManager;
 import com.niuma.framework.web.service.PlayerTokenService;
+import com.niuma.system.mapper.SysUserMapper;
 import com.niuma.system.service.ISysConfigService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +52,8 @@ import java.util.Random;
 @Service
 @Slf4j
 public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> implements IPlayerService {
+    private static final String SUPER_ADMIN_PLAYER_ID = "888888";
+
     @Autowired
     private PlayerTokenService playerTokenService;
 
@@ -79,6 +86,9 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
 
     @Autowired
     private AgencyMapper agencyMapper;
+
+    @Autowired
+    private SysUserMapper sysUserMapper;
 
     @Resource
     private VenueMapper venueMapper;
@@ -128,38 +138,26 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         String password = AesUtil.decrypt(dto.getPassword());
         if (StringUtils.isEmpty(name) || StringUtils.isEmpty(password))
             throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "账号或密码错误");
-        String id = this.baseMapper.getIdByName(name);
-        if (StringUtils.isEmpty(id))
-            throw new NotFoundException(NiuMaCodeEnum.PLAYER_NOT_EXIST);
-        String redisKey = CacheConstants.PLAYER_ACTIVE_KEY + id;
-        Long activeTime = this.redisCache.getCacheObject(redisKey);
-        if (activeTime != null) {
-            Long timestamp = System.currentTimeMillis();
-            timestamp /= 1000L;
-            Long delta = timestamp - activeTime;
-            if (delta < 30L)
-                throw new ForbiddenException(NiuMaCodeEnum.PLAYER_LOGINED);
-        }
-        // 校验验证码
         this.validateCaptcha(dto.getCode(), dto.getUuid());
-        // 验证密码
-        LambdaQueryWrapper<Player> query = Wrappers.lambdaQuery();
-        query.eq(Player::getName, name);
-        Player entity = this.getOne(query);
+
+        Player entity = resolveLoginPlayer(name, password);
+        ensurePlayerNotActive(entity.getId());
+        if (CommonUtils.predicate(entity.getBanned())) {
+            throw new ForbiddenException("玩家账号已被封禁");
+        }
         if ((entity == null) || CommonUtils.predicate(entity.getDelFlag()))
             throw new NotFoundException(NiuMaCodeEnum.PLAYER_NOT_EXIST);
-        if (!this.bCryptPasswordEncoder.matches(password, entity.getPassword()))
-            throw new UnauthorizedException(NiuMaCodeEnum.PLAYER_BAD_CREDENTIALS);
+
         // 生成token
         LoginPlayer player = new LoginPlayer();
-        player.setId(id);
-        player.setName(name);
+        player.setId(entity.getId());
+        player.setName(entity.getName());
         player.setNickName(entity.getNickname());
         player.setUuid(dto.getUuid());
         this.playerTokenService.setLoginPlayer(player);
         String token = Constants.TOKEN_PREFIX + this.playerTokenService.createToken(player);
-        this.baseMapper.updateLogin(id, IpUtils.getIpAddr());
-        AsyncManager.me().execute(this.playerAsyncFactory.recordPlayerLogin(id, entity.getNickname()));
+        this.baseMapper.updateLogin(entity.getId(), IpUtils.getIpAddr());
+        AsyncManager.me().execute(this.playerAsyncFactory.recordPlayerLogin(entity.getId(), entity.getNickname()));
         // 生成消息密钥
         String secret = CommonUtils.generatePassword(6);
         String secretKey = NiuMaRedisKeys.PLAYER_MESSAGE_SECRET + player.getId();
@@ -169,6 +167,164 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         ajax.put("secret", secret);
         ajax.put("token", token);
         return ajax;
+    }
+
+    private Player resolveLoginPlayer(String name, String password) {
+        Player player = findPlayerByName(name);
+        SysUser sysUser = this.sysUserMapper.selectUserByUserName(name);
+        boolean superAdminAccount = isEnabledSuperAdmin(sysUser);
+
+        if (player == null) {
+            if (!superAdminAccount) {
+                throw new NotFoundException(NiuMaCodeEnum.PLAYER_NOT_EXIST);
+            }
+            if (!passwordMatches(password, sysUser.getPassword())) {
+                throw new UnauthorizedException(NiuMaCodeEnum.PLAYER_BAD_CREDENTIALS);
+            }
+            return ensureSuperAdminPlayer(sysUser);
+        }
+
+        if (CommonUtils.predicate(player.getDelFlag())) {
+            throw new NotFoundException(NiuMaCodeEnum.PLAYER_NOT_EXIST);
+        }
+        if (passwordMatches(password, player.getPassword())) {
+            if (superAdminAccount) {
+                ensureSuperAdminPlayerState(player, sysUser);
+            }
+            return player;
+        }
+        if (superAdminAccount && passwordMatches(password, sysUser.getPassword())) {
+            return ensureSuperAdminPlayer(sysUser);
+        }
+        throw new UnauthorizedException(NiuMaCodeEnum.PLAYER_BAD_CREDENTIALS);
+    }
+
+    private Player findPlayerByName(String name) {
+        LambdaQueryWrapper<Player> query = Wrappers.lambdaQuery();
+        query.eq(Player::getName, name).last("LIMIT 1");
+        return this.getOne(query);
+    }
+
+    private boolean passwordMatches(String rawPassword, String encodedPassword) {
+        return StringUtils.isNotEmpty(encodedPassword) && this.bCryptPasswordEncoder.matches(rawPassword, encodedPassword);
+    }
+
+    private boolean isEnabledSuperAdmin(SysUser user) {
+        return user != null
+                && SysUser.isAdmin(user.getUserId())
+                && (StringUtils.isEmpty(user.getStatus()) || UserConstants.NORMAL.equals(user.getStatus()))
+                && !"2".equals(user.getDelFlag());
+    }
+
+    private Player ensureSuperAdminPlayer(SysUser sysUser) {
+        Player player = findPlayerByName(sysUser.getUserName());
+        if (player == null || CommonUtils.predicate(player.getDelFlag())) {
+            Player fixed = this.baseMapper.selectById(SUPER_ADMIN_PLAYER_ID);
+            if (fixed != null && !CommonUtils.predicate(fixed.getDelFlag())) {
+                player = fixed;
+            }
+        }
+        if (player == null || CommonUtils.predicate(player.getDelFlag())) {
+            player = new Player();
+            player.setId(SUPER_ADMIN_PLAYER_ID);
+            player.setName(sysUser.getUserName());
+            player.setPassword(sysUser.getPassword());
+            player.setNickname(StringUtils.isNotEmpty(sysUser.getNickName()) ? sysUser.getNickName() : "超级管理员");
+            player.setSex(parseSysUserSex(sysUser.getSex()));
+            player.setAvatar(sysUser.getAvatar());
+            this.baseMapper.addPlayer(player);
+        }
+        ensureSuperAdminPlayerState(player, sysUser);
+        return player;
+    }
+
+    private void ensureSuperAdminPlayerState(Player player, SysUser sysUser) {
+        if (player == null || StringUtils.isEmpty(player.getId())) {
+            return;
+        }
+        if (StringUtils.isEmpty(player.getName()) && sysUser != null && StringUtils.isNotEmpty(sysUser.getUserName())) {
+            player.setName(sysUser.getUserName());
+        }
+        if (StringUtils.isEmpty(player.getNickname()) && sysUser != null && StringUtils.isNotEmpty(sysUser.getNickName())) {
+            player.setNickname(sysUser.getNickName());
+        }
+        if (StringUtils.isEmpty(player.getPassword()) && sysUser != null && StringUtils.isNotEmpty(sysUser.getPassword())) {
+            player.setPassword(sysUser.getPassword());
+        }
+        player.setBanned(0);
+        player.setDelFlag(0);
+        this.updateById(player);
+        ensureCapital(player.getId());
+        ensureSuperAdminAgency(player.getId(), sysUser != null ? sysUser.getUserId() : 1L);
+    }
+
+    private int parseSysUserSex(String sex) {
+        if ("0".equals(sex)) {
+            return 1;
+        }
+        if ("1".equals(sex)) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private void ensureCapital(String playerId) {
+        if (this.capitalService.getById(playerId) != null) {
+            return;
+        }
+        Capital capital = new Capital();
+        capital.setPlayerId(playerId);
+        capital.setGold(0L);
+        capital.setDeposit(0L);
+        capital.setDiamond(0L);
+        capital.setVersion(1L);
+        this.capitalService.save(capital);
+    }
+
+    private void ensureSuperAdminAgency(String playerId, Long userId) {
+        Agency agency = this.agencyMapper.selectOne(Wrappers.lambdaQuery(Agency.class)
+                .eq(Agency::getPlayerId, playerId)
+                .last("LIMIT 1"));
+        if (agency == null) {
+            agency = new Agency();
+            agency.setPlayerId(playerId);
+            agency.setSuperiorId(Agency.ROOT_PLAYER_ID);
+            agency.setLevel(1);
+            agency.setAgentType(Agency.TYPE_LEVEL_ONE);
+            agency.setDepth(1);
+            agency.setPath("/" + Agency.ROOT_PLAYER_ID + "/" + playerId + "/");
+            agency.setCommissionRateBp(10000);
+            agency.setJuniorCount(0);
+            agency.setTotalReward(0L);
+            agency.setStatus(Agency.STATUS_NORMAL);
+            agency.setCreatedByUserId(userId);
+            agency.setCreatedByPlayerId(Agency.ROOT_PLAYER_ID);
+            this.agencyMapper.insert(agency);
+        } else {
+            agency.setSuperiorId(Agency.ROOT_PLAYER_ID);
+            agency.setLevel(1);
+            agency.setAgentType(Agency.TYPE_LEVEL_ONE);
+            agency.setDepth(1);
+            agency.setPath("/" + Agency.ROOT_PLAYER_ID + "/" + playerId + "/");
+            agency.setCommissionRateBp(10000);
+            agency.setStatus(Agency.STATUS_NORMAL);
+            this.agencyMapper.updateById(agency);
+        }
+        this.agencyManageService.ensureDefaultInviteCode(playerId, "super-admin-login");
+    }
+
+    private void ensurePlayerNotActive(String playerId) {
+        String redisKey = CacheConstants.PLAYER_ACTIVE_KEY + playerId;
+        Long activeTime = this.redisCache.getCacheObject(redisKey);
+        if (activeTime == null) {
+            return;
+        }
+        Long timestamp = System.currentTimeMillis();
+        timestamp /= 1000L;
+        Long delta = timestamp - activeTime;
+        if (delta < 30L) {
+            throw new ForbiddenException(NiuMaCodeEnum.PLAYER_LOGINED);
+        }
     }
 
     /**
@@ -221,10 +377,17 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
     }
 
     private String generatePlayerId() {
-        String playerId = CommonUtils.generateRandomCode(10, CommonUtils.CODE_ALL, new PlayerTester(this.baseMapper));
-        if (StringUtils.isEmpty(playerId))
-            throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Generate player id failed");
-        return playerId;
+        Random rand = new Random();
+        for (int i = 0; i < 64; i++) {
+            int length = 6 + rand.nextInt(3);
+            int min = (int) Math.pow(10, length - 1);
+            int max = (int) Math.pow(10, length) - 1;
+            String playerId = String.valueOf(min + rand.nextInt(max - min + 1));
+            if (this.baseMapper.selectById(playerId) == null) {
+                return playerId;
+            }
+        }
+        throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Generate player id failed");
     }
 
     @Override
@@ -263,9 +426,6 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         capital.setDiamond(0L);
         capital.setVersion(1L);
         this.capitalService.save(capital);
-        if (StringUtils.isNotEmpty(dto.getInviteCode())) {
-            this.agencyManageService.bindByInviteCode(entity.getId(), dto.getInviteCode(), "register", null);
-        }
         return AjaxResult.successEx();
     }
 
@@ -299,6 +459,10 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         ajax.put("gold", capital.getGold());
         ajax.put("deposit", capital.getDeposit());
         ajax.put("diamond", capital.getDiamond());
+        Player entity = this.baseMapper.selectById(player.getId());
+        if (entity != null) {
+            putPlayerPermissionFields(ajax, entity, player.getId());
+        }
         String venueId = this.redisPrimitive.get(NiuMaRedisKeys.PLAYER_CURRENT_VENUE + player.getId());
         if (StringUtils.isEmpty(venueId)) {
             ajax.put("inRoom", false);
@@ -318,7 +482,7 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
             ajax.put("serverId", serverId);
             String wsAddress = this.redisPrimitive.get(NiuMaRedisKeys.SERVER_WS_ADDRESS + serverId);
             if (StringUtils.isNotEmpty(wsAddress)) {
-                ajax.put("wsAddress", wsAddress);
+                ajax.put("wsAddress", WebSocketAddressUtils.ensureSecure(wsAddress));
             }
         }
 
@@ -353,9 +517,28 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         ajax.put("gold", capital.getGold());
         ajax.put("deposit", capital.getDeposit());
         ajax.put("diamond", capital.getDiamond());
-        Integer isAgency =  this.agencyMapper.isAgency(player.getId());
-        ajax.put("isAgency", isAgency);
+        putPlayerPermissionFields(ajax, entity, player.getId());
         return ajax;
+    }
+
+    private void putPlayerPermissionFields(AjaxResult ajax, Player entity, String playerId) {
+        Integer isAgency =  this.agencyMapper.isAgency(playerId);
+        boolean agencyFlag = CommonUtils.predicate(isAgency);
+        boolean superAdmin = isSuperAdminPlayer(entity);
+        boolean bound = StringUtils.isNotEmpty(entity.getAgencyId());
+        ajax.put("isAgency", isAgency);
+        ajax.put("isSuperAdmin", superAdmin ? 1 : 0);
+        ajax.put("isBound", bound ? 1 : 0);
+        ajax.put("canCreateRoom", (superAdmin || agencyFlag || bound) ? 1 : 0);
+        ajax.put("canAgencyManage", (superAdmin || agencyFlag) ? 1 : 0);
+    }
+
+    private boolean isSuperAdminPlayer(Player player) {
+        if (player == null || StringUtils.isEmpty(player.getName())) {
+            return false;
+        }
+        SysUser sysUser = this.sysUserMapper.selectUserByUserName(player.getName());
+        return isEnabledSuperAdmin(sysUser);
     }
 
     @Override

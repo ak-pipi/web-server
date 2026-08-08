@@ -438,7 +438,7 @@ public class SettleServiceImpl extends ServiceImpl<GameRoundMapper, GameRound> i
         RoomFeeLedger feeLedger = new RoomFeeLedger();
         feeLedger.setUserId(playerId);
         feeLedger.setRoomId(dto.getRoomId());
-        feeLedger.setFeeType("SETTLE");
+        feeLedger.setFeeType(RoomFeeLedger.FEE_TYPE_SETTLE);
         feeLedger.setFeeAmount(playerResult.getRoomFeeAmount());
         feeLedger.setPayWalletType(walletType);
         feeLedger.setRemark(remark);

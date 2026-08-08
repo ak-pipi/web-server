@@ -9,6 +9,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Component;
 import com.niuma.common.constant.CacheConstants;
 import com.niuma.common.constant.Constants;
@@ -80,18 +81,26 @@ public class SysLoginService
             // 该方法会去调用UserDetailsServiceImpl.loadUserByUsername
             authentication = authenticationManager.authenticate(authenticationToken);
         }
-        catch (Exception e)
+        catch (AuthenticationException e)
         {
-            if (e instanceof BadCredentialsException)
+            if (isCredentialFailure(e))
             {
+                // DaoAuthenticationProvider wraps user lookup/password failures.
                 AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.password.not.match")));
                 throw new UserPasswordNotMatchException();
             }
-            else
-            {
-                AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, e.getMessage()));
-                throw new ServiceException(e.getMessage());
-            }
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, e.getMessage()));
+            throw new ServiceException(e.getMessage());
+        }
+        catch (UserPasswordNotMatchException e)
+        {
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.password.not.match")));
+            throw e;
+        }
+        catch (Exception e)
+        {
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, e.getMessage()));
+            throw new ServiceException(e.getMessage());
         }
         finally
         {
@@ -102,6 +111,20 @@ public class SysLoginService
         recordLoginInfo(loginUser.getUserId());
         // 生成token
         return tokenService.createToken(loginUser);
+    }
+
+    private boolean isCredentialFailure(Throwable exception)
+    {
+        for (Throwable current = exception; current != null; current = current.getCause())
+        {
+            if (current instanceof BadCredentialsException
+                    || current instanceof UserPasswordNotMatchException
+                    || current instanceof UserNotExistsException)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

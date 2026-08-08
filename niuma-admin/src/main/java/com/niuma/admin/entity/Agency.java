@@ -101,4 +101,9 @@ public class Agency {
      * 创建该代理的上级代理玩家ID
      */
     private String createdByPlayerId;
+
+    /**
+     * 上级代理给该合伙人设置的成员备注
+     */
+    private String memberRemark;
 }

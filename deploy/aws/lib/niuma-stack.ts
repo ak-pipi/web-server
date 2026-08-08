@@ -24,6 +24,8 @@ export class NiuMaCostSaverStack extends cdk.Stack {
 
     const gameInstanceType = this.node.tryGetContext('gameInstanceType') ?? 't3.medium';
     const apiDomain = this.node.tryGetContext('apiDomain') ?? '';
+    const machineImageId = this.node.tryGetContext('machineImageId') ?? '';
+    const deploymentRegion = process.env.CDK_DEFAULT_REGION ?? process.env.AWS_REGION ?? 'ap-east-1';
     const webDomain = this.node.tryGetContext('webDomain') ?? '';
     const webCertificateArn = this.node.tryGetContext('webCertificateArn') ?? '';
     const webHostedZoneId = this.node.tryGetContext('webHostedZoneId') ?? '';
@@ -78,6 +80,7 @@ export class NiuMaCostSaverStack extends cdk.Stack {
       allowAllOutbound: true,
     });
     gameSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'ACME HTTP-01 challenge');
+    gameSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Public WSS game endpoint over standard TLS port');
     gameSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(9098), 'Public WSS game endpoint');
     gameSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(10086), 'Public raw TCP game endpoint');
 
@@ -338,7 +341,9 @@ function handler(event) {
     appSecret.grantRead(webRole);
     gameRepository.grantPullPush(gameRole);
 
-    const linux = ec2.MachineImage.latestAmazonLinux2023();
+    const linux = machineImageId
+      ? ec2.MachineImage.genericLinux({ [deploymentRegion]: machineImageId })
+      : ec2.MachineImage.latestAmazonLinux2023();
     const commonInstanceProps = {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
@@ -370,7 +375,7 @@ function handler(event) {
     });
 
     const webEip = new ec2.CfnEIP(this, 'WebEip', { domain: 'vpc' });
-    const gameEip = new ec2.CfnEIP(this, 'GameEip', { domain: 'vpc' });
+    const gameEip = new ec2.CfnEIP(this, 'GameEipV2', { domain: 'vpc' });
     new ec2.CfnEIPAssociation(this, 'WebEipAssociation', {
       allocationId: webEip.attrAllocationId,
       instanceId: web.instanceId,

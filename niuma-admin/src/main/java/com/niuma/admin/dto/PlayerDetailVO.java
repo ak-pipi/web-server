@@ -116,6 +116,12 @@ public class PlayerDetailVO {
     /** 今日局数 */
     private Integer todayRounds;
 
+    /** 按玩法汇总的真实战绩 */
+    private List<Map<String, Object>> gameSummaries;
+
+    /** 最近三天可查看回放的对局 */
+    private List<Map<String, Object>> recentReplayRecords;
+
     // ==================== 风控信息 ====================
 
     /** 风险等级(0正常 1低 2中 3高) */

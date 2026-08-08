@@ -14,6 +14,10 @@ import java.time.LocalDateTime;
 @Data
 @TableName("room_fee_ledger")
 public class RoomFeeLedger {
+    public static final String FEE_TYPE_SETTLE = "SETTLE";
+    public static final String FEE_TYPE_GAME_ROOM = "GAME_ROOM";
+    public static final String FEE_TYPE_SHUFFLE = "SHUFFLE_FEE";
+
     /** 主键 */
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;

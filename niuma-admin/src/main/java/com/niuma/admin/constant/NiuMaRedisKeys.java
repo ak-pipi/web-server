@@ -69,7 +69,7 @@ public final class NiuMaRedisKeys {
 
     /**
      * 场地服务器websocket地址，后加服务器id
-     * 数据格式为ws://ip:port/，例如ws://192.168.1.100:9098/
+     * 数据格式为wss://domain:port/，例如wss://game.example.com:9098/
      */
     public final static String SERVER_WS_ADDRESS = "server_ws_address:";
 

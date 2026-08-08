@@ -18,6 +18,7 @@ import com.niuma.admin.service.IGameRecordRetentionService;
 import com.niuma.admin.service.IGameService;
 import com.niuma.admin.service.IWalletService;
 import com.niuma.admin.utils.JsonUtils;
+import com.niuma.admin.utils.WebSocketAddressUtils;
 import com.niuma.common.constant.ResultCodeEnum;
 import com.niuma.common.core.domain.AjaxResult;
 import com.niuma.common.core.domain.model.LoginPlayer;
@@ -140,6 +141,12 @@ public class GameServiceImpl implements IGameService {
 
     @Resource
     private PlayerAgentBindMapper playerAgentBindMapper;
+
+    @Resource
+    private PlayerGameRestrictionMapper playerGameRestrictionMapper;
+
+    @Resource
+    private AgencyMapper agencyMapper;
 
     @Resource
     private DistrictMapper districtMapper;
@@ -1107,8 +1114,69 @@ public class GameServiceImpl implements IGameService {
         query.eq(PlayerAgentBind::getPlayerId, playerId);
         query.eq(PlayerAgentBind::getStatus, PlayerAgentBind.STATUS_ACTIVE);
         Integer count = this.playerAgentBindMapper.selectCount(query);
-        if (count == null || count < 1)
-            throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "玩家未绑定代理，不能进入游戏");
+        if (count != null && count > 0) {
+            return;
+        }
+
+        // 已授予代理身份的 Cocos 玩家以代理线路本身作为归属，无需再创建一条自绑定记录。
+        // 但被解除过绑定的玩家必须重新输入邀请码，不能借由代理身份绕过该限制。
+        Agency agency = this.agencyMapper.selectOne(Wrappers.lambdaQuery(Agency.class)
+                .eq(Agency::getPlayerId, playerId)
+                .eq(Agency::getStatus, Agency.STATUS_NORMAL)
+                .last("LIMIT 1"));
+        if (agency != null) {
+            PlayerAgentBind latestBind = this.playerAgentBindMapper.selectOne(Wrappers.lambdaQuery(PlayerAgentBind.class)
+                    .eq(PlayerAgentBind::getPlayerId, playerId)
+                    .orderByDesc(PlayerAgentBind::getId)
+                    .last("LIMIT 1"));
+            if (latestBind == null) {
+                return;
+            }
+        }
+        throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "玩家未绑定代理，不能进入游戏");
+    }
+
+    private void assertPlayerGameAllowed(String playerId, Integer gameType) {
+        if (StringUtils.isEmpty(playerId) || gameType == null || gameType.equals(NiuMaConstants.GAME_TYPE_DUMB)) {
+            return;
+        }
+        Integer count = this.playerGameRestrictionMapper.selectCount(
+                Wrappers.lambdaQuery(PlayerGameRestriction.class)
+                        .eq(PlayerGameRestriction::getPlayerId, playerId)
+                        .eq(PlayerGameRestriction::getGameType, gameType)
+                        .eq(PlayerGameRestriction::getRestricted, PlayerGameRestriction.STATUS_RESTRICTED));
+        if (count != null && count > 0) {
+            throw new ForbiddenException(ResultCodeEnum.FORBIDDEN.getCode(), "当前玩法已被上级限制");
+        }
+    }
+
+    private Integer gameTypeForDistrict(Integer districtId) {
+        if (districtId == null) {
+            return null;
+        }
+        if (isRemovedDistrict(districtId)) {
+            return null;
+        }
+        if (districtId.equals(NiuMaConstants.DISTRICT_LACKEY_BEGINNER) ||
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_MODERATE) ||
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_ADVANCED) ||
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_MASTER)) {
+            return NiuMaConstants.GAME_TYPE_LACKEY;
+        }
+        if (districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_BEGINNER) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_MODERATE) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_ADVANCED) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_MASTER)) {
+            return NiuMaConstants.GAME_TYPE_GUAN_DAN;
+        }
+        if (isTaojiangDistrict(districtId)) return NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG;
+        if (isHongzhongDistrict(districtId)) return NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG;
+        if (isChangshaDistrict(districtId)) return NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG;
+        if (isPaodekuaiDistrict(districtId)) return NiuMaConstants.GAME_TYPE_PAO_DE_KUAI;
+        if (isWaihuziDistrict(districtId)) return NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI;
+        if (isQianfenDistrict(districtId)) return NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN;
+        if (isDoudizhuDistrict(districtId)) return NiuMaConstants.GAME_TYPE_DOU_DI_ZHU;
+        return null;
     }
 
     private void assertEnoughCarryScoreForCreate(String playerId, Integer gameType, String json) {
@@ -1136,9 +1204,45 @@ public class GameServiceImpl implements IGameService {
         result.setResult(new ResponseEntity<>(ajax, ex.getStatus()));
     }
 
+    private boolean isRemovedGameType(Integer gameType) {
+        return gameType != null && (
+                gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_LACKEY) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_GUAN_DAN)
+        );
+    }
+
+    private boolean isRemovedDistrict(Integer districtId) {
+        return districtId != null && (
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_BEGINNER) ||
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_MODERATE) ||
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_ADVANCED) ||
+                districtId.equals(NiuMaConstants.DISTRICT_LACKEY_MASTER) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_BEGINNER) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_MODERATE) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_ADVANCED) ||
+                districtId.equals(NiuMaConstants.DISTRICT_GUAN_DAN_MASTER) ||
+                isDoudizhuDistrict(districtId)
+        );
+    }
+
+    private void assertGameAvailable(Integer gameType) {
+        if (isRemovedGameType(gameType)) {
+            throw new ForbiddenException(NiuMaCodeEnum.GAME_TYPE_ERROR.getCode(), "该玩法已下线");
+        }
+    }
+
+    private void assertDistrictAvailable(Integer districtId) {
+        if (isRemovedDistrict(districtId)) {
+            throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        }
+    }
+
     public String createGame(Integer gameType, String playerId, String base64) {
         String json = decodeRuleConfigBase64(base64);
+        assertGameAvailable(gameType);
         assertPlayerCanEnterGame(playerId);
+        assertPlayerGameAllowed(playerId, gameType);
         assertEnoughCarryScoreForCreate(playerId, gameType, json);
         GameMahjong mahjong = null;
         GameBiJi biJi = null;
@@ -1690,10 +1794,12 @@ public class GameServiceImpl implements IGameService {
                     gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                     gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)))
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_TYPE_ERROR.getCode(), "Unsupported game type");
+            assertGameAvailable(gameType);
             LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
             String playerId = null;
             if (player != null)
                 playerId = player.getId();
+            assertPlayerGameAllowed(playerId, gameType);
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, null, (playerIdIn, venueIdIn) -> {
                 // 创建游戏
                 String venueId = createGame(dto.getGameType(), playerIdIn, dto.getBase64());
@@ -1811,7 +1917,7 @@ public class GameServiceImpl implements IGameService {
             String errMsg = String.format("Can not find the websocket address of server with id: %s", serverId);
             throw new InternalServerException(NiuMaCodeEnum.SERVER_INACCESSIBLE.getCode(), errMsg);
         }
-        return wsAddress;
+        return WebSocketAddressUtils.ensureSecure(wsAddress);
     }
 
     private void responseEnterVenue(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, String venueId) {
@@ -1847,10 +1953,12 @@ public class GameServiceImpl implements IGameService {
             Venue entity = this.venueMapper.selectById(dto.getVenueId());
             if (entity == null)
                 throw new NotFoundException(NiuMaCodeEnum.VENUE_NOT_EXIST);
+            assertGameAvailable(entity.getGameType());
             if (!dto.getGameType().equals(entity.getGameType()))
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_TYPE_ERROR);
             if (!entity.getStatus().equals(0))
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_STATUS_ERROR);
+            assertPlayerGameAllowed(playerId, entity.getGameType());
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, dto.getVenueId(), (playerIdIn, venueIdIn) -> {
                 assertEnoughCarryScoreForVenue(playerIdIn, entity);
                 // 响应进入指定场地
@@ -1873,6 +1981,13 @@ public class GameServiceImpl implements IGameService {
     public void enterNumber(DeferredResult<ResponseEntity<AjaxResult>> result, EnterNumberDTO dto) {
         String venueId = null;
         Integer gameType = dto.getGameType();
+        if (isRemovedGameType(gameType)) {
+            AjaxResult ajax = new AjaxResult();
+            ajax.put(AjaxResult.CODE_TAG, NiuMaCodeEnum.GAME_TYPE_ERROR.getCode());
+            ajax.put(AjaxResult.MSG_TAG, "该玩法已下线");
+            result.setResult(new ResponseEntity<>(ajax, HttpStatus.FORBIDDEN));
+            return;
+        }
         if (gameType.equals(NiuMaConstants.GAME_TYPE_MAHJONG))
             venueId = this.mahjongMapper.getIdByNumber(dto.getNumber());
         else if (gameType.equals(NiuMaConstants.GAME_TYPE_BI_JI))
@@ -1911,6 +2026,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     private int getDistrictPlayerLimit(Integer districtId) {
+        assertDistrictAvailable(districtId);
         int ret = 0;
         if (districtId.equals(NiuMaConstants.DISTRICT_LACKEY_BEGINNER) ||
             districtId.equals(NiuMaConstants.DISTRICT_LACKEY_MODERATE) ||
@@ -1977,7 +2093,9 @@ public class GameServiceImpl implements IGameService {
         District district = this.districtMapper.selectById(districtId);
         if (district == null)
             throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        assertDistrictAvailable(districtId);
         assertPlayerCanEnterGame(playerId);
+        assertPlayerGameAllowed(playerId, gameTypeForDistrict(districtId));
         assertEnoughCarryScoreForDistrict(playerId, districtId, district);
         String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
         Map<String, String> notFullMap = this.redisPrimitive.getMap(notFullKey);
@@ -2151,6 +2269,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     private String createDistrictVenue(Integer districtId) {
+        assertDistrictAvailable(districtId);
         String venueId = null;
         Venue venue = new Venue();
         venue.setOwnerId("0000000000");
@@ -2534,7 +2653,15 @@ public class GameServiceImpl implements IGameService {
             result.setResult(new ResponseEntity<>(ajax, HttpStatus.NOT_FOUND));
             return;
         }
+        if (isRemovedDistrict(districtId)) {
+            AjaxResult ajax = new AjaxResult();
+            ajax.put(AjaxResult.CODE_TAG, NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode());
+            ajax.put(AjaxResult.MSG_TAG, "指定区域不存在");
+            result.setResult(new ResponseEntity<>(ajax, HttpStatus.NOT_FOUND));
+            return;
+        }
         String venueId = districtId.toString();
+        assertPlayerGameAllowed(player.getId(), gameTypeForDistrict(districtId));
         MqCommandDeferred actionDeferred = this.checkBeforeEnter(player.getId(), venueId, (playerIdIn, venueIdIn) -> {
             // 响应进入指定区域
             responseEnterDistrict(result, playerIdIn, districtId);
@@ -2555,6 +2682,7 @@ public class GameServiceImpl implements IGameService {
         Integer count = this.districtMapper.selectCount(query);
         if (count == null || count < 1)
             throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        assertDistrictAvailable(districtId);
         String countKey = NiuMaRedisKeys.DISTRICT_PLAYER_COUNT + districtId.toString();
         Map<String, String> countMap = this.redisPrimitive.getMap(countKey);
         boolean test = false;
@@ -2621,6 +2749,7 @@ public class GameServiceImpl implements IGameService {
         District entity = this.districtMapper.selectById(districtId);
         if (entity == null)
             throw new NotFoundException(NiuMaCodeEnum.DISTRICT_NOT_EXIST.getCode(), "指定区域不存在");
+        assertDistrictAvailable(districtId);
         int maxPlayerNum = this.getDistrictPlayerLimit(districtId);
         // 从 Redis 读取区域内未满场地列表（venueId -> playerCount）
         String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
@@ -2646,12 +2775,16 @@ public class GameServiceImpl implements IGameService {
                 item.put("venueId", venueId);
                 item.put("districtId", districtId);
                 item.put("gameType", venueEntity.getGameType());
+                item.put("gameName", resolveGameName(venueEntity.getGameType()));
+                item.put("gameTypeText", resolveGameTypeText(venueEntity.getGameType()));
+                item.put("gameModeText", resolveDistrictGameModeText(districtId));
                 item.put("number", getDistrictVenueNumber(venueEntity));
                 item.put("playerCount", playerCount);
                 item.put("maxPlayerNums", maxPlayerNum);
                 item.put("baseScore", resolveDistrictBaseScore(districtId));
                 item.put("roundCount", resolveDistrictRoundCount(districtId));
                 item.put("minCarryScore", resolveMinCarryScoreForDistrict(districtId, entity));
+                item.put("players", getDistrictVenuePlayers(districtId, venueId, maxPlayerNum));
                 venues.add(item);
             }
         }
@@ -2664,10 +2797,60 @@ public class GameServiceImpl implements IGameService {
         return result;
     }
 
+    private List<Map<String, Object>> getDistrictVenuePlayers(Integer districtId, String venueId, int maxPlayerNum) {
+        if (districtId == null || StringUtils.isEmpty(venueId))
+            return Collections.emptyList();
+        String authorizedKey = NiuMaRedisKeys.DISTRICT_AUTHORIZED_TIMES
+                .replace("{0}", districtId.toString())
+                .replace("{1}", venueId);
+        Map<String, String> authorizedMap = this.redisPrimitive.getMap(authorizedKey);
+        if (authorizedMap == null || authorizedMap.isEmpty())
+            return Collections.emptyList();
+
+        LinkedHashSet<String> playerIds = new LinkedHashSet<>();
+        for (String playerId : authorizedMap.keySet()) {
+            if (StringUtils.isEmpty(playerId))
+                continue;
+            String currentVenue = this.redisPrimitive.get(NiuMaRedisKeys.PLAYER_CURRENT_VENUE + playerId);
+            if (venueId.equals(currentVenue)) {
+                playerIds.add(playerId);
+                if (playerIds.size() >= maxPlayerNum)
+                    break;
+            }
+        }
+        if (playerIds.isEmpty())
+            return Collections.emptyList();
+
+        List<Player> players = this.playerMapper.selectBatchIds(playerIds);
+        Map<String, Player> playerMap = new HashMap<>();
+        if (players != null) {
+            for (Player player : players) {
+                if (player != null && StringUtils.isNotEmpty(player.getId()))
+                    playerMap.put(player.getId(), player);
+            }
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (String playerId : playerIds) {
+            Player player = playerMap.get(playerId);
+            Map<String, Object> item = new HashMap<>();
+            item.put("playerId", playerId);
+            if (player != null) {
+                item.put("nickname", player.getNickname());
+                item.put("headUrl", player.getAvatar());
+                item.put("avatar", player.getAvatar());
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
     private String getDistrictVenueNumber(Venue venue) {
         if (venue == null || StringUtils.isEmpty(venue.getId()) || venue.getGameType() == null)
             return null;
         Integer gameType = venue.getGameType();
+        if (isRemovedGameType(gameType))
+            return null;
         String venueId = venue.getId();
         if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU))
             return this.doudizhuMapper.getNumber(venueId);
@@ -2705,7 +2888,68 @@ public class GameServiceImpl implements IGameService {
     private int resolveDistrictRoundCount(Integer districtId) {
         if (districtId == null) return 0;
         if (isTaojiangDistrict(districtId)) return resolveTaojiangRoundCount(districtId);
+        if (isHongzhongDistrict(districtId)) return resolveHongzhongRoundCount(districtId);
+        if (isChangshaDistrict(districtId)) return resolveChangshaRoundCount(districtId);
+        if (isPaodekuaiDistrict(districtId)) return resolvePaodekuaiRoundCount(districtId);
         return 8;
+    }
+
+    private String resolveGameName(Integer gameType) {
+        if (gameType == null) return "-";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_MAHJONG)) return "麻将";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_BI_JI)) return "六安比鸡";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100)) return "百人牛牛";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) return "桃江麻将";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) return "红中麻将";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) return "跑得快";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) return "长沙麻将";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI)) return "益阳歪胡子";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) return "沅江千分";
+        return "未知玩法";
+    }
+
+    private String resolveGameTypeText(Integer gameType) {
+        if (gameType == null) return "-";
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_MAHJONG) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG) ||
+                gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
+            return "麻将";
+        }
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI)) {
+            return "字牌";
+        }
+        return "扑克";
+    }
+
+    private String resolveDistrictGameModeText(Integer districtId) {
+        int baseScore = resolveDistrictBaseScore(districtId);
+        int roundCount = resolveDistrictRoundCount(districtId);
+        StringBuilder builder = new StringBuilder();
+        if (roundCount > 0) {
+            builder.append(roundCount == 1 ? "单局" : roundCount + "局");
+        }
+        if (baseScore > 0) {
+            if (builder.length() > 0) builder.append(" · ");
+            builder.append("台桌").append(baseScore);
+        }
+        return builder.length() == 0 ? "快速场" : builder.toString();
+    }
+
+    private String resolvePublicRoomModeText(RoomItemDTO item) {
+        if (item == null || item.getGameType() == null) return "-";
+        if (item.getGameType().equals(NiuMaConstants.GAME_TYPE_NIU_NIU_100)) {
+            return "百人场";
+        }
+        StringBuilder builder = new StringBuilder();
+        if (item.getMode() != null && item.getMode() > 0) {
+            builder.append(item.getMode()).append("局");
+        }
+        if (item.getDiZhu() != null && item.getDiZhu() > 0) {
+            if (builder.length() > 0) builder.append(" · ");
+            builder.append("底注").append(item.getDiZhu());
+        }
+        return builder.length() == 0 ? "公开房" : builder.toString();
     }
 
     @Override
@@ -2949,6 +3193,8 @@ public class GameServiceImpl implements IGameService {
             AjaxResult ajax = AjaxResult.successEx();
             ajax.put("hasReplay", false);
             ajax.put("retentionDays", gameRecordRetentionService.getRetentionDays());
+            ajax.put("traceStartTime", formatRecordTraceStartTime());
+            ajax.put("traceEndTime", formatRecordTraceEndTime());
             ajax.put("msg", "牌局记录已超过追溯期");
             return ajax;
         }
@@ -2990,6 +3236,8 @@ public class GameServiceImpl implements IGameService {
         }
         dto.setRetentionDays(gameRecordRetentionService.getRetentionDays());
         dto.setExpireTime(formatRecordExpireTime(record.getTime()));
+        dto.setTraceStartTime(formatRecordTraceStartTime());
+        dto.setTraceEndTime(formatRecordTraceEndTime());
         dto.setFormat("msgpack");
         dto.setCodec("zlib+base64");
         dto.setBase64(playback);
@@ -3075,6 +3323,9 @@ public class GameServiceImpl implements IGameService {
                     playerCount = 0;
                 item.setPlayerCount(playerCount);
                 item.setMaxPlayerNums(maxPlayerNums);
+                item.setGameName(resolveGameName(item.getGameType()));
+                item.setGameTypeText(resolveGameTypeText(item.getGameType()));
+                item.setGameModeText(resolvePublicRoomModeText(item));
             }
             // 按人数降序排序
             Collections.sort(items, new Comparator<RoomItemDTO>() {
@@ -3146,6 +3397,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     private PageResult<GameRoomDTO> getRooms(GameRoomReqDTO dto, Integer gameType) {
+        assertGameAvailable(gameType);
         if (dto.getPageNum() < 1)
             throw new BadRequestException(ResultCodeEnum.PAGE_NUM_ERROR);
         if (dto.getPageSize() < 1)
@@ -3503,6 +3755,8 @@ public class GameServiceImpl implements IGameService {
         playbackDto.setWinGolds(recordDto.getWinGolds());
         playbackDto.setRetentionDays(gameRecordRetentionService.getRetentionDays());
         playbackDto.setExpireTime(recordDto.getExpireTime());
+        playbackDto.setTraceStartTime(recordDto.getTraceStartTime());
+        playbackDto.setTraceEndTime(recordDto.getTraceEndTime());
         playbackDto.setFormat("msgpack");
         playbackDto.setCodec("zlib+base64");
         if (record.getTime() != null)
@@ -3514,6 +3768,8 @@ public class GameServiceImpl implements IGameService {
             ajax.put("hasReplay", false);
             ajax.put("retentionDays", playbackDto.getRetentionDays());
             ajax.put("expireTime", playbackDto.getExpireTime());
+            ajax.put("traceStartTime", playbackDto.getTraceStartTime());
+            ajax.put("traceEndTime", playbackDto.getTraceEndTime());
             ajax.put("format", playbackDto.getFormat());
             ajax.put("codec", playbackDto.getCodec());
             ajax.put("msg", "牌局记录已超过追溯期");
@@ -3528,6 +3784,8 @@ public class GameServiceImpl implements IGameService {
         ajax.put("hasReplay", playbackDto.getHasReplay());
         ajax.put("retentionDays", playbackDto.getRetentionDays());
         ajax.put("expireTime", playbackDto.getExpireTime());
+        ajax.put("traceStartTime", playbackDto.getTraceStartTime());
+        ajax.put("traceEndTime", playbackDto.getTraceEndTime());
         ajax.put("format", playbackDto.getFormat());
         ajax.put("codec", playbackDto.getCodec());
         if (!playbackDto.getHasReplay())
@@ -3653,18 +3911,32 @@ public class GameServiceImpl implements IGameService {
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
+    private String formatRecordTraceStartTime() {
+        return getRecordRetentionCutoff().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    private String formatRecordTraceEndTime() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
     private void fillRecordRetention(MahjongRecordDTO dto, LocalDateTime recordTime) {
         dto.setHasReplay(!isRecordExpired(recordTime));
         dto.setExpireTime(formatRecordExpireTime(recordTime));
+        dto.setTraceStartTime(formatRecordTraceStartTime());
+        dto.setTraceEndTime(formatRecordTraceEndTime());
     }
 
     private void fillRecordRetention(TaojiangMahjongRecordDTO dto, LocalDateTime recordTime) {
         dto.setHasReplay(!isRecordExpired(recordTime));
         dto.setExpireTime(formatRecordExpireTime(recordTime));
+        dto.setTraceStartTime(formatRecordTraceStartTime());
+        dto.setTraceEndTime(formatRecordTraceEndTime());
     }
 
     private void fillRecordRetention(GameRecordDTO dto, LocalDateTime recordTime) {
         dto.setHasReplay(!isRecordExpired(recordTime));
         dto.setExpireTime(formatRecordExpireTime(recordTime));
+        dto.setTraceStartTime(formatRecordTraceStartTime());
+        dto.setTraceEndTime(formatRecordTraceEndTime());
     }
 }

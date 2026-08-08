@@ -102,6 +102,14 @@ public interface AgencyMapper extends BaseMapper<Agency> {
     void collectRewards(@Param("ids") List<Long> ids, @Param("collectId") Long collectId);
 
     /**
+     * 部分领取旧奖励，保留剩余未领取数量。
+     * @param id 奖励id
+     * @param amount 本次领取数量
+     * @return 更新行数
+     */
+    int reduceRewardAmount(@Param("id") Long id, @Param("amount") Long amount);
+
+    /**
      * 增加累计领取奖励
      * @param playerId 玩家id
      * @param totalReward 领取奖励

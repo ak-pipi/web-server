@@ -63,4 +63,20 @@
           AND `create_time` &lt;= #{endTime}
           AND `biz_type` = #{bizType}
     </select>
+
+    <select id="sumAgencyStatsByUserIds" resultType="com.niuma.admin.dto.AgencyStatAmountDTO">
+        SELECT `user_id` AS `playerId`,
+               COALESCE(SUM(CASE WHEN `change_amount` &lt; 0 THEN -`change_amount` ELSE 0 END), 0) AS `totalConsume`,
+               COALESCE(SUM(CASE WHEN `change_amount` &gt; 0 THEN `change_amount` ELSE 0 END), 0) AS `giftReceived`
+        FROM `wallet_ledger`
+        WHERE `wallet_type` = #{walletType}
+          AND `biz_type` = #{bizType}
+          AND `create_time` &gt;= #{startTime}
+          AND `create_time` &lt; #{endTime}
+          AND `user_id` IN
+          <foreach item="userId" collection="userIds" open="(" close=")" separator=",">
+              #{userId}
+          </foreach>
+        GROUP BY `user_id`
+    </select>
 </mapper>

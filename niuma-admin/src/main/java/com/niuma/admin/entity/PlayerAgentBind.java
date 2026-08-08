@@ -45,4 +45,9 @@ public class PlayerAgentBind {
     private Long unbindByUserId;
 
     private String unbindReason;
+
+    /**
+     * 上级代理给该直属成员设置的备注
+     */
+    private String memberRemark;
 }

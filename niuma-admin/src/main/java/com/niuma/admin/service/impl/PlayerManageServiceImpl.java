@@ -27,9 +27,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -56,6 +58,9 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
 
     @Autowired
     private AdminAuditLogMapper adminAuditLogMapper;
+
+    @Autowired
+    private GameRegionalRecordMapper gameRegionalRecordMapper;
 
     @Autowired
     private IWalletService walletService;
@@ -217,6 +222,7 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
         checkPlayerExists(playerId);
 
         PlayerDetailVO stats = new PlayerDetailVO();
+        stats.setPlayerId(playerId);
         loadGameStats(stats, playerId);
 
         // 按游戏类型分组统计 TODO: 需要关联room.gameCode
@@ -228,6 +234,9 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
         result.put("loseCount", stats.getLoseCount());
         result.put("winRate", stats.getWinRate());
         result.put("todayRounds", stats.getTodayRounds());
+        result.put("totalScoreDelta", stats.getTotalScoreDelta());
+        result.put("gameSummaries", stats.getGameSummaries());
+        result.put("recentReplayRecords", stats.getRecentReplayRecords());
         return result;
     }
 
@@ -429,20 +438,50 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
      */
     private void loadGameStats(PlayerDetailVO vo, String playerId) {
         try {
-            // 总局数统计（从 game_round 的 result_json 中提取该玩家的对局）
-            // 简化实现: 通过结算流水中的 GAME_SETTLE 类型统计
-            Long totalRounds = 0L;
-            Long winCount = 0L;
-            Long loseCount = 0L;
-            Long totalScoreDelta = 0L;
+            LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+            List<Map<String, Object>> rows = gameRegionalRecordMapper.summarizePlayerGameRecords(playerId, todayStart);
+            int totalRounds = 0;
+            int winCount = 0;
+            int loseCount = 0;
+            int todayRounds = 0;
+            long totalScoreDelta = 0L;
+            List<Map<String, Object>> summaries = new ArrayList<>();
 
-            // TODO: 从 wallet_ledger 统计 game_settle 类型的变动次数作为总局数近似值
-            // 完整实现应从 game_round + result_json 中解析每个玩家的胜负
+            if (rows != null) {
+                for (Map<String, Object> row : rows) {
+                    int itemTotal = intValue(row, "totalRounds", "totalrounds", "TOTALROUNDS");
+                    int itemWins = intValue(row, "winCount", "wincount", "WINCOUNT");
+                    int itemLoses = intValue(row, "loseCount", "losecount", "LOSECOUNT");
+                    int itemToday = intValue(row, "todayRounds", "todayrounds", "TODAYROUNDS");
+                    long itemDelta = longValue(row, "totalScoreDelta", "totalscoredelta", "TOTALSCOREDELTA");
 
-            vo.setTotalRounds(totalRounds.intValue());
-            vo.setWinCount(winCount.intValue());
-            vo.setLoseCount(loseCount.intValue());
+                    Map<String, Object> summary = new LinkedHashMap<>();
+                    summary.put("gameType", intValue(row, "gameType", "gametype", "GAMETYPE"));
+                    summary.put("gameName", stringValue(row, "gameName", "gamename", "GAMENAME"));
+                    summary.put("totalRounds", itemTotal);
+                    summary.put("winCount", itemWins);
+                    summary.put("loseCount", itemLoses);
+                    summary.put("todayRounds", itemToday);
+                    summary.put("totalScoreDelta", itemDelta);
+                    summary.put("winRate", calcWinRate(itemWins, itemTotal));
+                    summary.put("latestTime", formatMapTime(row, "latestTime", "latesttime", "LATESTTIME"));
+                    summaries.add(summary);
+
+                    totalRounds += itemTotal;
+                    winCount += itemWins;
+                    loseCount += itemLoses;
+                    todayRounds += itemToday;
+                    totalScoreDelta += itemDelta;
+                }
+            }
+
+            vo.setTotalRounds(totalRounds);
+            vo.setWinCount(winCount);
+            vo.setLoseCount(loseCount);
             vo.setTotalScoreDelta(totalScoreDelta);
+            vo.setTodayRounds(todayRounds);
+            vo.setGameSummaries(summaries);
+            vo.setRecentReplayRecords(loadRecentReplayRecords(playerId));
 
             // 计算胜率
             if (totalRounds > 0) {
@@ -454,13 +493,109 @@ public class PlayerManageServiceImpl implements IPlayerManageService {
                 vo.setWinRate(BigDecimal.ZERO);
             }
 
-            // 今日局数（当天结算的局数近似）
-            LocalDateTime todayStart = LocalDate.now().atStartOfDay();
-            // TODO: 按 settledAt 时间范围统计 game_round
-
         } catch (Exception e) {
             log.warn("[玩家管理] 加载战绩统计失败: playerId={}, error={}", vo.getPlayerId(), e.getMessage());
+            vo.setTotalRounds(0);
+            vo.setWinCount(0);
+            vo.setLoseCount(0);
+            vo.setTodayRounds(0);
+            vo.setTotalScoreDelta(0L);
+            vo.setWinRate(BigDecimal.ZERO);
+            vo.setGameSummaries(new ArrayList<>());
+            vo.setRecentReplayRecords(new ArrayList<>());
         }
+    }
+
+    private List<Map<String, Object>> loadRecentReplayRecords(String playerId) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
+        List<Map<String, Object>> rows = gameRegionalRecordMapper.getRecentPlayerGameRecords(playerId, cutoff, 20);
+        List<Map<String, Object>> records = new ArrayList<>();
+        if (rows == null)
+            return records;
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("gameType", intValue(row, "gameType", "gametype", "GAMETYPE"));
+            item.put("gameName", stringValue(row, "gameName", "gamename", "GAMENAME"));
+            item.put("id", longValue(row, "id", "ID"));
+            item.put("venueId", stringValue(row, "venueId", "venueid", "VENUEID"));
+            item.put("roundNo", intValue(row, "roundNo", "roundno", "ROUNDNO"));
+            item.put("time", formatMapTime(row, "time", "TIME"));
+            item.put("winGold", longValue(row, "delta", "DELTA"));
+            item.put("hasReplay", booleanValue(row, "hasReplay", "hasreplay", "HASREPLAY"));
+            records.add(item);
+        }
+        return records;
+    }
+
+    private BigDecimal calcWinRate(int winCount, int totalRounds) {
+        if (totalRounds <= 0)
+            return BigDecimal.ZERO;
+        return new BigDecimal(winCount)
+                .multiply(new BigDecimal("100"))
+                .divide(new BigDecimal(totalRounds), 1, BigDecimal.ROUND_HALF_UP);
+    }
+
+    private Object mapValue(Map<String, Object> row, String... keys) {
+        if (row == null)
+            return null;
+        for (String key : keys) {
+            if (row.containsKey(key))
+                return row.get(key);
+        }
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            for (String key : keys) {
+                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(key))
+                    return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private int intValue(Map<String, Object> row, String... keys) {
+        Object value = mapValue(row, keys);
+        if (value instanceof Number)
+            return ((Number) value).intValue();
+        if (value != null) {
+            try {
+                return Integer.parseInt(value.toString());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 0;
+    }
+
+    private long longValue(Map<String, Object> row, String... keys) {
+        Object value = mapValue(row, keys);
+        if (value instanceof Number)
+            return ((Number) value).longValue();
+        if (value != null) {
+            try {
+                return Long.parseLong(value.toString());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 0L;
+    }
+
+    private boolean booleanValue(Map<String, Object> row, String... keys) {
+        Object value = mapValue(row, keys);
+        if (value instanceof Boolean)
+            return (Boolean) value;
+        if (value instanceof Number)
+            return ((Number) value).intValue() != 0;
+        return value != null && Boolean.parseBoolean(value.toString());
+    }
+
+    private String stringValue(Map<String, Object> row, String... keys) {
+        Object value = mapValue(row, keys);
+        return value == null ? null : value.toString();
+    }
+
+    private String formatMapTime(Map<String, Object> row, String... keys) {
+        Object value = mapValue(row, keys);
+        if (value instanceof LocalDateTime)
+            return ((LocalDateTime) value).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return value == null ? null : value.toString();
     }
 
     /**

@@ -97,4 +97,11 @@ public interface GameRegionalRecordMapper {
                                                             @Param("cutoff") LocalDateTime cutoff,
                                                             @Param("offset") Integer offset,
                                                             @Param("pageSize") Integer pageSize);
+
+    List<java.util.Map<String, Object>> summarizePlayerGameRecords(@Param("playerId") String playerId,
+                                                                    @Param("todayStart") LocalDateTime todayStart);
+
+    List<java.util.Map<String, Object>> getRecentPlayerGameRecords(@Param("playerId") String playerId,
+                                                                   @Param("cutoff") LocalDateTime cutoff,
+                                                                   @Param("limit") Integer limit);
 }

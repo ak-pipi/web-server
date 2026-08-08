@@ -55,6 +55,8 @@ CALL add_column_if_missing('agency', 'created_by_user_id',
     'ALTER TABLE `agency` ADD COLUMN `created_by_user_id` bigint DEFAULT NULL COMMENT ''创建代理的后台用户ID'' AFTER `status`');
 CALL add_column_if_missing('agency', 'created_by_player_id',
     'ALTER TABLE `agency` ADD COLUMN `created_by_player_id` varchar(32) DEFAULT NULL COMMENT ''创建代理的上级代理玩家ID'' AFTER `created_by_user_id`');
+CALL add_column_if_missing('agency', 'member_remark',
+    'ALTER TABLE `agency` ADD COLUMN `member_remark` varchar(10) DEFAULT NULL COMMENT ''上级代理设置的成员备注'' AFTER `created_by_player_id`');
 CALL add_index_if_missing('agency', 'idx_agency_path',
     'ALTER TABLE `agency` ADD INDEX `idx_agency_path` (`path`)');
 CALL add_index_if_missing('agency', 'idx_agency_type_status',
@@ -116,6 +118,7 @@ CREATE TABLE IF NOT EXISTS `player_agent_bind` (
     `unbind_at` datetime DEFAULT NULL COMMENT '解绑时间',
     `unbind_by_user_id` bigint DEFAULT NULL COMMENT '解绑后台用户ID',
     `unbind_reason` varchar(255) DEFAULT NULL COMMENT '解绑原因',
+    `member_remark` varchar(10) DEFAULT NULL COMMENT '上级代理设置的成员备注',
     `active_player_id` varchar(32) GENERATED ALWAYS AS (IF(`status` = 'active', `player_id`, NULL)) STORED,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_player_agent_bind_active` (`active_player_id`),
@@ -128,6 +131,7 @@ CREATE TABLE IF NOT EXISTS `agency_commission_ledger` (
     `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
     `room_fee_ledger_id` bigint NOT NULL COMMENT '房费流水ID',
     `room_id` varchar(16) NOT NULL COMMENT '房间ID',
+    `fee_type` varchar(32) NOT NULL DEFAULT 'GAME_ROOM' COMMENT '费用来源类型(GAME_ROOM/SETTLE/SHUFFLE_FEE)',
     `fee_player_id` varchar(32) NOT NULL COMMENT '产生房费的玩家ID',
     `agent_player_id` varchar(32) NOT NULL COMMENT '获得分成的代理玩家ID，平台为0000000000',
     `agent_type` int NOT NULL COMMENT '代理类型',
@@ -140,12 +144,16 @@ CREATE TABLE IF NOT EXISTS `agency_commission_ledger` (
     `commission_amount` bigint NOT NULL COMMENT '本层返佣金额',
     `path_snapshot` varchar(768) DEFAULT NULL COMMENT '返佣时线路快照',
     `wallet_ledger_id` bigint DEFAULT NULL COMMENT '代理钱包流水ID',
-    `status` varchar(32) NOT NULL DEFAULT 'settled' COMMENT 'settled/reversed',
+    `collect_id` bigint DEFAULT NULL COMMENT '收益箱领取记录ID',
+    `collected_amount` bigint NOT NULL DEFAULT 0 COMMENT '收益箱已领取数量',
+    `status` varchar(32) NOT NULL DEFAULT 'settled' COMMENT 'pending/settled/reversed',
     `remark` varchar(255) DEFAULT NULL COMMENT '备注',
     `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_agency_commission_fee_agent` (`room_fee_ledger_id`, `agent_player_id`),
     KEY `idx_agency_commission_agent_time` (`agent_player_id`, `create_time`),
+    KEY `idx_agency_commission_collect` (`agent_player_id`, `collect_id`, `status`, `wallet_ledger_id`),
+    KEY `idx_agency_commission_fee_type` (`fee_type`, `create_time`),
     KEY `idx_agency_commission_fee_player` (`fee_player_id`, `create_time`),
     KEY `idx_agency_commission_room` (`room_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='代理房费返佣明细';

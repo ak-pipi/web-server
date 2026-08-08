@@ -30,8 +30,4 @@ public class AgencyCreateDTO {
     @NotNull(message = "返佣比例不能为空")
     private Integer commissionRateBp;
 
-    /**
-     * 可选：绑定已有后台账号。
-     */
-    private Long sysUserId;
 }

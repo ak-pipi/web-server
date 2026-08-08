@@ -22,4 +22,6 @@ public class GameRecordDTO {
     private String time;
     private Boolean hasReplay;
     private String expireTime;
+    private String traceStartTime;
+    private String traceEndTime;
 }

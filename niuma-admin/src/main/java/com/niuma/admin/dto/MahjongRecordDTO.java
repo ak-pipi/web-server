@@ -66,4 +66,14 @@ public class MahjongRecordDTO {
      * 回放/记录追溯截止时间
      */
     private String expireTime;
+
+    /**
+     * 回放追溯开始时间（当前时间往前推保留天数）
+     */
+    private String traceStartTime;
+
+    /**
+     * 回放追溯结束时间（当前时间）
+     */
+    private String traceEndTime;
 }

@@ -25,6 +25,8 @@ public class AgencyCommissionLedger {
 
     private String roomId;
 
+    private String feeType;
+
     private String feePlayerId;
 
     private String agentPlayerId;
@@ -48,6 +50,10 @@ public class AgencyCommissionLedger {
     private String pathSnapshot;
 
     private Long walletLedgerId;
+
+    private Long collectId;
+
+    private Long collectedAmount;
 
     private String status;
 

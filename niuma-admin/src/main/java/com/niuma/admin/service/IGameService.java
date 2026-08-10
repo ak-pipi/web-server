@@ -44,7 +44,7 @@ public interface IGameService {
      * 进入区域
      * @param districtId 区域id
      */
-    void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId);
+    void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId, Long carryScore);
 
     /**
      * 查询区域内当前玩家数量

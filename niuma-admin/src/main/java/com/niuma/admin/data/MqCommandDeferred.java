@@ -53,6 +53,11 @@ public class MqCommandDeferred {
     private String base64;
 
     /**
+     * 本次进入房间携带积分
+     */
+    private Long carryScore;
+
+    /**
      * 异步响应结果
      */
     private DeferredResult<ResponseEntity<AjaxResult> > result;
@@ -108,6 +113,14 @@ public class MqCommandDeferred {
 
     public String getBase64() {
         return this.base64;
+    }
+
+    public void setCarryScore(Long carryScore) {
+        this.carryScore = carryScore;
+    }
+
+    public Long getCarryScore() {
+        return this.carryScore;
     }
 
     public void setResult(DeferredResult<ResponseEntity<AjaxResult> > result) {

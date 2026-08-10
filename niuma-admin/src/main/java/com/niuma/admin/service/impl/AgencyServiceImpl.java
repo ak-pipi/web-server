@@ -64,6 +64,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -75,6 +77,7 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
     private static final String MEMBER_TYPE_PLAYER = "player";
     private static final String MATCH_VIEW_SHARE = "share";
     private static final String MATCH_VIEW_SHUFFLE_SHARE = "shuffleShare";
+    private static final ZoneId INCOME_BOX_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter INCOME_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired
@@ -1069,13 +1072,17 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
 
     private LocalDate parseDate(String value) {
         if (StringUtils.isEmpty(value)) {
-            return LocalDate.now();
+            return incomeBoxToday();
         }
         try {
             return LocalDate.parse(value.trim());
         } catch (Exception ex) {
-            return LocalDate.now();
+            return incomeBoxToday();
         }
+    }
+
+    private LocalDate incomeBoxToday() {
+        return LocalDate.now(INCOME_BOX_ZONE);
     }
 
     private String limitClause(int pageNum, int pageSize) {
@@ -1103,9 +1110,11 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
         long legacyPending = safeLong(legacyReward);
         long withdrawableCommission = pendingCommission + depositSettledUncollected;
         long availableBalance = withdrawableCommission + legacyPending;
-        long pendingTodayCommission = sumAvailableCommission(playerId, AgencyCommissionLedger.STATUS_PENDING, LocalDate.now());
-        long depositSettledTodayUncollected = sumDepositSettledUncollectedCommission(playerId, LocalDate.now());
-        long todayCommission = sumCommission(playerId, null, LocalDate.now());
+        LocalDate today = incomeBoxToday();
+        long pendingTodayCommission = sumAvailableCommission(playerId, AgencyCommissionLedger.STATUS_PENDING, today);
+        long depositSettledTodayUncollected = sumDepositSettledUncollectedCommission(playerId, today);
+        long todayCommission = sumCommission(playerId, null, today);
+        long todayAvailableCommission = pendingTodayCommission + depositSettledTodayUncollected;
         long totalCommission = sumCommission(playerId, null, null);
         Long totalReward = agency != null ? agency.getTotalReward() : this.baseMapper.getTotalReward1(playerId);
         if (totalReward == null) {
@@ -1121,9 +1130,12 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
         ajax.put("prepaidAmount", depositSettledUncollected);
         ajax.put("legacyReward", legacyPending);
         ajax.put("todayCommission", todayCommission);
+        ajax.put("todayIncomeAmount", todayCommission);
         ajax.put("todayPendingCommission", pendingTodayCommission);
         ajax.put("todayDepositSettledAmount", depositSettledTodayUncollected);
-        ajax.put("availableTodayCommission", pendingTodayCommission + depositSettledTodayUncollected);
+        ajax.put("availableTodayCommission", todayAvailableCommission);
+        ajax.put("todayAvailableAmount", todayAvailableCommission);
+        ajax.put("todayWithdrawableAmount", todayAvailableCommission);
         ajax.put("totalCommission", totalCommission + legacyPending);
         ajax.put("claimedAmount", safeLong(totalReward));
         ajax.put("amount", safeLong(amount));
@@ -1161,6 +1173,35 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
                                                                                      LocalDate endDate, boolean forUpdate) {
         LocalDateTime startTime = startDate == null ? null : startDate.atStartOfDay();
         LocalDateTime endTime = endDate == null ? null : endDate.atStartOfDay();
+        return this.agencyCommissionLedgerMapper.selectDepositSettledUncollected(
+                playerId, startTime, endTime, forUpdate);
+    }
+
+    private List<AgencyCommissionLedger> queryDepositSettledUncollectedIncomeLedgersForDate(String playerId, LocalDate date,
+                                                                                             boolean forUpdate) {
+        LocalDateTime localStart = date.atStartOfDay();
+        LocalDateTime localEnd = date.plusDays(1).atStartOfDay();
+        LocalDateTime utcStart = date.atStartOfDay(INCOME_BOX_ZONE).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        LocalDateTime utcEnd = date.plusDays(1).atStartOfDay(INCOME_BOX_ZONE).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+
+        LinkedHashMap<Long, AgencyCommissionLedger> byId = new LinkedHashMap<>();
+        for (AgencyCommissionLedger ledger : queryDepositSettledUncollectedIncomeLedgersByTime(playerId, localStart, localEnd, forUpdate)) {
+            if (ledger.getId() != null) {
+                byId.put(ledger.getId(), ledger);
+            }
+        }
+        if (!localStart.equals(utcStart) || !localEnd.equals(utcEnd)) {
+            for (AgencyCommissionLedger ledger : queryDepositSettledUncollectedIncomeLedgersByTime(playerId, utcStart, utcEnd, forUpdate)) {
+                if (ledger.getId() != null) {
+                    byId.putIfAbsent(ledger.getId(), ledger);
+                }
+            }
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    private List<AgencyCommissionLedger> queryDepositSettledUncollectedIncomeLedgersByTime(String playerId, LocalDateTime startTime,
+                                                                                            LocalDateTime endTime, boolean forUpdate) {
         return this.agencyCommissionLedgerMapper.selectDepositSettledUncollected(
                 playerId, startTime, endTime, forUpdate);
     }
@@ -1334,8 +1375,7 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
             wrapper.eq(AgencyCommissionLedger::getStatus, status);
         }
         if (date != null) {
-            wrapper.ge(AgencyCommissionLedger::getCreateTime, date.atStartOfDay())
-                    .lt(AgencyCommissionLedger::getCreateTime, date.plusDays(1).atStartOfDay());
+            applyIncomeDateWindow(wrapper, date);
         }
         List<AgencyCommissionLedger> ledgers = this.agencyCommissionLedgerMapper.selectList(wrapper);
         long total = 0L;
@@ -1354,15 +1394,33 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
             wrapper.eq(AgencyCommissionLedger::getStatus, status);
         }
         if (date != null) {
-            wrapper.ge(AgencyCommissionLedger::getCreateTime, date.atStartOfDay())
-                    .lt(AgencyCommissionLedger::getCreateTime, date.plusDays(1).atStartOfDay());
+            applyIncomeDateWindow(wrapper, date);
         }
         return sumIncomeLedgers(this.agencyCommissionLedgerMapper.selectList(wrapper));
     }
 
     private long sumDepositSettledUncollectedCommission(String playerId, LocalDate date) {
-        LocalDate endDate = date == null ? null : date.plusDays(1);
-        return sumIncomeLedgers(queryDepositSettledUncollectedIncomeLedgers(playerId, date, endDate, false));
+        if (date == null) {
+            return sumIncomeLedgers(queryDepositSettledUncollectedIncomeLedgers(playerId, null, null, false));
+        }
+        return sumIncomeLedgers(queryDepositSettledUncollectedIncomeLedgersForDate(playerId, date, false));
+    }
+
+    private void applyIncomeDateWindow(LambdaQueryWrapper<AgencyCommissionLedger> wrapper, LocalDate date) {
+        LocalDateTime localStart = date.atStartOfDay();
+        LocalDateTime localEnd = date.plusDays(1).atStartOfDay();
+        LocalDateTime utcStart = date.atStartOfDay(INCOME_BOX_ZONE).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        LocalDateTime utcEnd = date.plusDays(1).atStartOfDay(INCOME_BOX_ZONE).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
+        if (localStart.equals(utcStart) && localEnd.equals(utcEnd)) {
+            wrapper.ge(AgencyCommissionLedger::getCreateTime, localStart)
+                    .lt(AgencyCommissionLedger::getCreateTime, localEnd);
+            return;
+        }
+        wrapper.and(w -> w.ge(AgencyCommissionLedger::getCreateTime, localStart)
+                .lt(AgencyCommissionLedger::getCreateTime, localEnd)
+                .or()
+                .ge(AgencyCommissionLedger::getCreateTime, utcStart)
+                .lt(AgencyCommissionLedger::getCreateTime, utcEnd));
     }
 
     private long sumIncomeLedgers(List<AgencyCommissionLedger> ledgers) {

@@ -112,6 +112,22 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         private String rootAgentPlayerId;
     }
 
+    @Data
+    private static class CommissionDraft {
+        private String agentPlayerId;
+        private Integer agentType;
+        private Integer agentDepth;
+        private Integer parentRateBp;
+        private Integer selfRateBp;
+        private Integer childRateBp;
+        private Integer shareRateBp;
+        private long feeAmount;
+        private long commissionAmount;
+        private String pathSnapshot;
+        private String remark;
+        private boolean platform;
+    }
+
     @Override
     public AjaxResult overview() {
         AgencyScope scope = resolveScope();
@@ -889,12 +905,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         }
 
         Map<String, Long> shares = normalizeCommissionShares(roomFeeLedger, commissionShares);
+        LinkedHashMap<String, CommissionDraft> drafts = new LinkedHashMap<>();
         for (Map.Entry<String, Long> entry : shares.entrySet()) {
-            processRoomFeeShare(roomFeeLedger, entry.getKey(), entry.getValue());
+            collectRoomFeeShare(roomFeeLedger, entry.getKey(), entry.getValue(), drafts);
+        }
+        for (CommissionDraft draft : drafts.values()) {
+            insertCommissionDraft(roomFeeLedger, draft);
         }
     }
 
-    private void processRoomFeeShare(RoomFeeLedger sourceLedger, String commissionPlayerId, long shareAmount) {
+    private void collectRoomFeeShare(RoomFeeLedger sourceLedger, String commissionPlayerId, long shareAmount,
+                                     LinkedHashMap<String, CommissionDraft> drafts) {
         if (shareAmount <= 0) {
             return;
         }
@@ -902,14 +923,14 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         String feeText = feeTypeText(shareLedger);
         Agency directAgent = resolveCommissionDirectAgent(commissionPlayerId);
         if (directAgent == null) {
-            insertPlatformCommission(shareLedger, RATE_FULL, shareLedger.getFeeAmount(),
+            addPlatformDraft(drafts, shareLedger, RATE_FULL, shareLedger.getFeeAmount(),
                     "玩家未绑定代理，平台获得全部" + feeText, commissionPlayerId);
             return;
         }
 
         List<Agency> chain = buildAgencyChain(directAgent);
         if (chain.isEmpty()) {
-            insertPlatformCommission(shareLedger, RATE_FULL, shareLedger.getFeeAmount(),
+            addPlatformDraft(drafts, shareLedger, RATE_FULL, shareLedger.getFeeAmount(),
                     "代理线路为空，平台获得全部" + feeText, commissionPlayerId);
             return;
         }
@@ -917,7 +938,7 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         int nextRate = resolveRate(chain.get(0));
         long platformAmount = calcShare(shareLedger.getFeeAmount(), RATE_FULL - nextRate);
         remaining -= platformAmount;
-        insertPlatformCommission(shareLedger, RATE_FULL - nextRate, platformAmount,
+        addPlatformDraft(drafts, shareLedger, RATE_FULL - nextRate, platformAmount,
                 "平台" + feeText + "分成", commissionPlayerId);
 
         String pathSnapshot = resolveCommissionPathSnapshot(commissionPlayerId, directAgent);
@@ -931,7 +952,79 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
             int shareRate = selfRate - childRate;
             long amount = (i + 1) == chain.size() ? remaining : calcShare(shareLedger.getFeeAmount(), shareRate);
             remaining -= amount;
-            insertAgentCommission(shareLedger, current, childRate, shareRate, amount, pathSnapshot);
+            addAgentDraft(drafts, shareLedger, current, childRate, shareRate, amount, pathSnapshot);
+        }
+    }
+
+    private void addPlatformDraft(LinkedHashMap<String, CommissionDraft> drafts, RoomFeeLedger fee,
+                                  int shareRate, long amount, String remark, String refSuffix) {
+        if (amount <= 0) {
+            return;
+        }
+        CommissionDraft draft = drafts.computeIfAbsent(Agency.ROOT_PLAYER_ID, key -> {
+            CommissionDraft item = new CommissionDraft();
+            item.setAgentPlayerId(Agency.ROOT_PLAYER_ID);
+            item.setAgentType(Agency.TYPE_ROOT);
+            item.setAgentDepth(0);
+            item.setParentRateBp(RATE_FULL);
+            item.setSelfRateBp(RATE_FULL);
+            item.setChildRateBp(RATE_FULL - shareRate);
+            item.setShareRateBp(shareRate);
+            item.setPathSnapshot("/" + Agency.ROOT_PLAYER_ID + "/");
+            item.setPlatform(true);
+            return item;
+        });
+        draft.setFeeAmount(draft.getFeeAmount() + nvl(fee.getFeeAmount()));
+        draft.setCommissionAmount(draft.getCommissionAmount() + amount);
+        draft.setRemark(appendRemark(draft.getRemark(), withOwnerRemark(remark, refSuffix)));
+    }
+
+    private void addAgentDraft(LinkedHashMap<String, CommissionDraft> drafts, RoomFeeLedger fee, Agency agency,
+                               int childRate, int shareRate, long amount, String snapshot) {
+        if (amount <= 0 || agency == null) {
+            return;
+        }
+        CommissionDraft draft = drafts.computeIfAbsent(agency.getPlayerId(), key -> {
+            CommissionDraft item = new CommissionDraft();
+            item.setAgentPlayerId(agency.getPlayerId());
+            item.setAgentType(resolveAgentType(agency));
+            item.setAgentDepth(resolveDepth(agency));
+            item.setParentRateBp(Agency.ROOT_PLAYER_ID.equals(agency.getSuperiorId())
+                    ? RATE_FULL
+                    : resolveRate(requireAgency(agency.getSuperiorId())));
+            item.setSelfRateBp(resolveRate(agency));
+            item.setChildRateBp(childRate);
+            item.setShareRateBp(shareRate);
+            item.setPathSnapshot(StringUtils.isNotEmpty(snapshot) ? snapshot : resolvePath(agency));
+            item.setRemark(feeTypeText(fee) + "返佣 | 待收益箱提取");
+            return item;
+        });
+        draft.setFeeAmount(draft.getFeeAmount() + nvl(fee.getFeeAmount()));
+        draft.setCommissionAmount(draft.getCommissionAmount() + amount);
+    }
+
+    private String appendRemark(String current, String addition) {
+        if (StringUtils.isEmpty(current)) {
+            return addition;
+        }
+        if (StringUtils.isEmpty(addition) || current.contains(addition)) {
+            return current;
+        }
+        return current + "；" + addition;
+    }
+
+    private String withOwnerRemark(String remark, String refSuffix) {
+        return StringUtils.isNotEmpty(refSuffix) ? remark + " | 归属玩家:" + refSuffix : remark;
+    }
+
+    private void insertCommissionDraft(RoomFeeLedger fee, CommissionDraft draft) {
+        if (draft == null || draft.getCommissionAmount() <= 0) {
+            return;
+        }
+        if (draft.isPlatform()) {
+            insertPlatformCommission(fee, draft);
+        } else {
+            insertAgentCommission(fee, draft);
         }
     }
 
@@ -976,17 +1069,17 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
     private Agency resolveCommissionDirectAgent(String commissionPlayerId) {
         Agency playerAgency = getAgency(commissionPlayerId);
         if (playerAgency != null) {
-            String superiorId = playerAgency.getSuperiorId();
-            if (StringUtils.isEmpty(superiorId) || Agency.ROOT_PLAYER_ID.equals(superiorId)) {
-                return null;
-            }
-            return getAgency(superiorId);
+            return playerAgency;
         }
         PlayerAgentBind bind = findActiveBind(commissionPlayerId);
         return bind == null ? null : getAgency(bind.getAgentPlayerId());
     }
 
     private String resolveCommissionPathSnapshot(String commissionPlayerId, Agency directAgent) {
+        Agency playerAgency = getAgency(commissionPlayerId);
+        if (playerAgency != null) {
+            return resolvePath(playerAgency);
+        }
         PlayerAgentBind bind = findActiveBind(commissionPlayerId);
         if (bind != null && StringUtils.isNotEmpty(bind.getPathSnapshot())) {
             return bind.getPathSnapshot();
@@ -1374,47 +1467,11 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         return chain;
     }
 
-    private void insertPlatformCommission(RoomFeeLedger fee, int shareRate, long amount, String remark) {
-        insertPlatformCommission(fee, shareRate, amount, remark, null);
-    }
-
-    private void insertPlatformCommission(RoomFeeLedger fee, int shareRate, long amount, String remark, String refSuffix) {
-        if (amount < 0) {
+    private void insertPlatformCommission(RoomFeeLedger fee, CommissionDraft draft) {
+        if (draft.getCommissionAmount() < 0) {
             throw new ForbiddenException("房费返佣金额不能为负数");
         }
-        AgencyCommissionLedger ledger = new AgencyCommissionLedger();
-        ledger.setRoomFeeLedgerId(fee.getId());
-        ledger.setRoomId(fee.getRoomId());
-        ledger.setFeeType(normalizeFeeType(fee));
-        ledger.setFeePlayerId(fee.getUserId());
-        ledger.setAgentPlayerId(Agency.ROOT_PLAYER_ID);
-        ledger.setAgentType(Agency.TYPE_ROOT);
-        ledger.setAgentDepth(0);
-        ledger.setParentRateBp(RATE_FULL);
-        ledger.setSelfRateBp(RATE_FULL);
-        ledger.setChildRateBp(RATE_FULL - shareRate);
-        ledger.setShareRateBp(shareRate);
-        ledger.setFeeAmount(fee.getFeeAmount());
-        ledger.setCommissionAmount(amount);
-        ledger.setPathSnapshot("/" + Agency.ROOT_PLAYER_ID + "/");
-        String finalRemark = StringUtils.isNotEmpty(refSuffix) ? remark + " | 归属玩家:" + refSuffix : remark;
-        if (amount > 0) {
-            String suffix = StringUtils.isNotEmpty(refSuffix)
-                    ? "_" + refSuffix.replaceAll("[^A-Za-z0-9_-]", "")
-                    : "";
-            String refNo = "PLATFORM_COMMISSION_" + fee.getId() + suffix;
-            Long walletLedgerId = walletService.increase(Agency.ROOT_PLAYER_ID, WalletType.DEPOSIT.getCode(), amount,
-                    LedgerBizType.AGENCY_COMMISSION.getCode(), refNo, finalRemark + " | 房间:" + fee.getRoomId());
-            ledger.setWalletLedgerId(walletLedgerId);
-        }
-        ledger.setStatus(AgencyCommissionLedger.STATUS_SETTLED);
-        ledger.setRemark(finalRemark);
-        ledger.setCreateTime(LocalDateTime.now());
-        agencyCommissionLedgerMapper.insert(ledger);
-    }
-
-    private void insertAgentCommission(RoomFeeLedger fee, Agency agency, int childRate, int shareRate, long amount, String snapshot) {
-        if (amount <= 0) {
+        if (draft.getCommissionAmount() == 0) {
             return;
         }
         AgencyCommissionLedger ledger = new AgencyCommissionLedger();
@@ -1422,21 +1479,49 @@ public class AgencyManageServiceImpl implements IAgencyManageService {
         ledger.setRoomId(fee.getRoomId());
         ledger.setFeeType(normalizeFeeType(fee));
         ledger.setFeePlayerId(fee.getUserId());
-        ledger.setAgentPlayerId(agency.getPlayerId());
-        ledger.setAgentType(resolveAgentType(agency));
-        ledger.setAgentDepth(resolveDepth(agency));
-        ledger.setParentRateBp(Agency.ROOT_PLAYER_ID.equals(agency.getSuperiorId())
-                ? RATE_FULL
-                : resolveRate(requireAgency(agency.getSuperiorId())));
-        ledger.setSelfRateBp(resolveRate(agency));
-        ledger.setChildRateBp(childRate);
-        ledger.setShareRateBp(shareRate);
-        ledger.setFeeAmount(fee.getFeeAmount());
-        ledger.setCommissionAmount(amount);
-        ledger.setPathSnapshot(StringUtils.isNotEmpty(snapshot) ? snapshot : resolvePath(agency));
+        ledger.setAgentPlayerId(draft.getAgentPlayerId());
+        ledger.setAgentType(draft.getAgentType());
+        ledger.setAgentDepth(draft.getAgentDepth());
+        ledger.setParentRateBp(draft.getParentRateBp());
+        ledger.setSelfRateBp(draft.getSelfRateBp());
+        ledger.setChildRateBp(draft.getChildRateBp());
+        ledger.setShareRateBp(draft.getShareRateBp());
+        ledger.setFeeAmount(draft.getFeeAmount());
+        ledger.setCommissionAmount(draft.getCommissionAmount());
+        ledger.setPathSnapshot(draft.getPathSnapshot());
+        String refNo = "PLATFORM_COMMISSION_" + fee.getId();
+        Long walletLedgerId = walletService.increase(Agency.ROOT_PLAYER_ID, WalletType.DEPOSIT.getCode(),
+                draft.getCommissionAmount(), LedgerBizType.AGENCY_COMMISSION.getCode(), refNo,
+                draft.getRemark() + " | 房间:" + fee.getRoomId());
+        ledger.setWalletLedgerId(walletLedgerId);
+        ledger.setStatus(AgencyCommissionLedger.STATUS_SETTLED);
+        ledger.setRemark(draft.getRemark());
+        ledger.setCreateTime(LocalDateTime.now());
+        agencyCommissionLedgerMapper.insert(ledger);
+    }
+
+    private void insertAgentCommission(RoomFeeLedger fee, CommissionDraft draft) {
+        if (draft.getCommissionAmount() <= 0) {
+            return;
+        }
+        AgencyCommissionLedger ledger = new AgencyCommissionLedger();
+        ledger.setRoomFeeLedgerId(fee.getId());
+        ledger.setRoomId(fee.getRoomId());
+        ledger.setFeeType(normalizeFeeType(fee));
+        ledger.setFeePlayerId(fee.getUserId());
+        ledger.setAgentPlayerId(draft.getAgentPlayerId());
+        ledger.setAgentType(draft.getAgentType());
+        ledger.setAgentDepth(draft.getAgentDepth());
+        ledger.setParentRateBp(draft.getParentRateBp());
+        ledger.setSelfRateBp(draft.getSelfRateBp());
+        ledger.setChildRateBp(draft.getChildRateBp());
+        ledger.setShareRateBp(draft.getShareRateBp());
+        ledger.setFeeAmount(draft.getFeeAmount());
+        ledger.setCommissionAmount(draft.getCommissionAmount());
+        ledger.setPathSnapshot(draft.getPathSnapshot());
         ledger.setWalletLedgerId(null);
         ledger.setStatus(AgencyCommissionLedger.STATUS_PENDING);
-        ledger.setRemark(feeTypeText(fee) + "返佣 | 待收益箱提取");
+        ledger.setRemark(StringUtils.isNotEmpty(draft.getRemark()) ? draft.getRemark() : feeTypeText(fee) + "返佣 | 待收益箱提取");
         ledger.setCreateTime(LocalDateTime.now());
         agencyCommissionLedgerMapper.insert(ledger);
     }

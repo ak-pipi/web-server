@@ -19,4 +19,9 @@ public class CreateGameDTO {
      * base64数据，解码是一个jsao，用于传输创建游戏相关的参数
      */
     private String base64;
+
+    /**
+     * 玩家创建并进入房间时携带积分；为空时使用房间最低携带积分。
+     */
+    private Long carryScore;
 }

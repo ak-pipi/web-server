@@ -29,4 +29,14 @@ public class AgencyStatsQueryDTO extends PageBody {
      * 统计日期，yyyy-MM-dd；为空时默认当天。
      */
     private String date;
+
+    /**
+     * 统计开始时间，yyyy-MM-dd HH:mm:ss；后台可传时间范围。
+     */
+    private String startTime;
+
+    /**
+     * 统计结束时间，yyyy-MM-dd HH:mm:ss；后台可传时间范围。
+     */
+    private String endTime;
 }

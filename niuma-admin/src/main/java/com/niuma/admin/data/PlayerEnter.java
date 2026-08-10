@@ -15,4 +15,7 @@ public class PlayerEnter {
 
     // 授权的场地id
     private String authorizedVenue;
+
+    // 本次授权进入房间携带积分
+    private Long carryScore;
 }

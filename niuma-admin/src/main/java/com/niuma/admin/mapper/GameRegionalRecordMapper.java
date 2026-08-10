@@ -1,5 +1,6 @@
 package com.niuma.admin.mapper;
 
+import com.niuma.admin.dto.AgencyGameStatDTO;
 import com.niuma.admin.entity.GameRegionalRecord;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
@@ -104,4 +105,8 @@ public interface GameRegionalRecordMapper {
     List<java.util.Map<String, Object>> getRecentPlayerGameRecords(@Param("playerId") String playerId,
                                                                    @Param("cutoff") LocalDateTime cutoff,
                                                                    @Param("limit") Integer limit);
+
+    List<AgencyGameStatDTO> sumAgencyGameStatsByPlayerIds(@Param("playerIds") Collection<String> playerIds,
+                                                          @Param("startTime") LocalDateTime startTime,
+                                                          @Param("endTime") LocalDateTime endTime);
 }

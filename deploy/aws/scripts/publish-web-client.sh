@@ -14,8 +14,13 @@ require_command() { command -v "$1" >/dev/null || die "缺少命令: $1"; }
 for command_name in aws jq npm; do require_command "$command_name"; done
 [[ -f "$CONFIG_FILE" ]] || die "请先创建 ${CONFIG_FILE}。"
 
+ENV_WEB_BUILD_DIR="${WEB_BUILD_DIR:-}"
+ENV_SKIP_COCOS_BUILD="${SKIP_COCOS_BUILD:-}"
+
 # shellcheck disable=SC1090
 source "$CONFIG_FILE"
+[[ -z "$ENV_WEB_BUILD_DIR" ]] || WEB_BUILD_DIR="$ENV_WEB_BUILD_DIR"
+[[ -z "$ENV_SKIP_COCOS_BUILD" ]] || SKIP_COCOS_BUILD="$ENV_SKIP_COCOS_BUILD"
 : "${AWS_REGION:?config.env 必须设置 AWS_REGION}"
 : "${STACK_NAME:=NiuMaCostSaver}"
 : "${API_DOMAIN:?config.env 必须设置 API_DOMAIN}"

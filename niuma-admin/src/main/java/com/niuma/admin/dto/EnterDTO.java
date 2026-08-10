@@ -18,4 +18,9 @@ public class EnterDTO {
 
     @NotNull(message = "游戏类型不能为空")
     private Integer gameType;
+
+    /**
+     * 玩家本次进入房间携带积分；为空时使用房间最低携带积分。
+     */
+    private Long carryScore;
 }

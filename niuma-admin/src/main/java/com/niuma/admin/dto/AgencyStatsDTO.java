@@ -22,13 +22,19 @@ public class AgencyStatsDTO {
     private String parentPlayerId;
     private String parentNickname;
 
-    /** 玩家剩余积分。 */
+    /** 统计时间内比赛输赢分。兼容旧客户端，值与 scoreDelta 保持一致。 */
     private Long score;
 
-    /** 玩家当天被人工操作减少的积分绝对值。 */
+    /** 统计时间内比赛输赢分。 */
+    private Long scoreDelta;
+
+    /** 统计时间内参与对局场次。 */
+    private Long roundCount;
+
+    /** 旧字段，保留兼容。 */
     private Long totalConsume;
 
-    /** 玩家当天被人工操作增加的积分。 */
+    /** 旧字段，保留兼容。 */
     private Long giftReceived;
 
     private Boolean hasChildren;

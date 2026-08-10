@@ -105,10 +105,11 @@ public class GameController {
      * @param districtId 区域id
      */
     @PostMapping("/enter/district")
-    public DeferredResult<ResponseEntity<AjaxResult>> enterDistrict(@RequestParam("districtId") Integer districtId) {
+    public DeferredResult<ResponseEntity<AjaxResult>> enterDistrict(@RequestParam("districtId") Integer districtId,
+                                                                    @RequestParam(value = "carryScore", required = false) Long carryScore) {
         DeferredResult<ResponseEntity<AjaxResult> > result = new DeferredResult<>();
         try {
-            this.gameService.enterDistrict(result, districtId);
+            this.gameService.enterDistrict(result, districtId, carryScore);
         } catch (Exception ex) {
             ex.printStackTrace();
             AjaxResult ajax = new AjaxResult();

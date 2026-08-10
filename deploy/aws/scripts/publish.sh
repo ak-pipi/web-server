@@ -134,6 +134,9 @@ SQL_MIGRATIONS+=("${SQL_DIR}/v23_remove_unused_legacy_games.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v24_restore_regional_single_round_districts.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v25_income_box_collect_id.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v26_income_box_partial_withdraw.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v27_fix_regional_record_time.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v28_rename_regional_district_display_names.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v29_fix_taojiang_district_labels.sql")
 
 validate_sql_migration_manifest() {
   local migration migration_name listed listed_path
@@ -179,7 +182,7 @@ can_run_amd64_container() {
 }
 
 upload_game_source() {
-  GAME_SOURCE_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/niuma-game-source.XXXXXX.tar.gz")"
+  GAME_SOURCE_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/niuma-game-source.XXXXXX")"
   LC_ALL=C COPYFILE_DISABLE=1 tar --format=ustar \
     --exclude='.git' \
     --exclude='build' \

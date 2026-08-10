@@ -802,7 +802,7 @@ public class GameServiceImpl implements IGameService {
     private int normalizeHongzhongBaseScore(Integer baseScore, int roundCount) {
         int score = baseScore == null ? 0 : baseScore;
         int[] validScores = roundCount == 1
-                ? new int[] {5, 10, 25}
+                ? new int[] {1, 2, 3, 5, 10, 20, 25, 30}
                 : new int[] {1, 2, 5, 10, 20};
         for (int validScore : validScores) {
             if (score == validScore)
@@ -962,29 +962,59 @@ public class GameServiceImpl implements IGameService {
         return baseScore > 0 ? baseScore * MIN_CARRY_SCORE_MULTIPLIER : 0L;
     }
 
+    private long resolveRegionalMinCarryScore(Integer gameType, int baseScore, int roundCount) {
+        if (gameType == null || baseScore <= 0)
+            return 0L;
+        if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
+            if (roundCount == 1) {
+                if (baseScore == 5) return 260L;
+                if (baseScore == 10) return 500L;
+                if (baseScore == 25) return 1500L;
+            } else if (roundCount == 8) {
+                if (baseScore == 1) return 50L;
+                if (baseScore == 2) return 100L;
+                if (baseScore == 5) return 380L;
+                if (baseScore == 10) return 1000L;
+                if (baseScore == 20) return 2000L;
+            }
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
+            if (roundCount == 1) {
+                if (baseScore == 1) return 40L;
+                if (baseScore == 2) return 80L;
+                if (baseScore == 3) return 120L;
+                if (baseScore == 5) return 200L;
+                if (baseScore == 10) return 400L;
+                if (baseScore == 20) return 800L;
+                if (baseScore == 25 || baseScore == 30) return 1200L;
+            }
+        }
+        return resolveMinCarryScoreByBaseScore(baseScore);
+    }
+
     private long resolveMinCarryScoreForCreate(Integer gameType, String json) {
         if (gameType == null)
             return 0L;
         JSONObject rule = parseRuleJson(json);
         int baseScore = 0;
+        int roundCount = 8;
         if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
-            int roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeTaojiangBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
-            int roundCount = normalizeHongzhongRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizeHongzhongRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
-            int roundCount = normalizeChangshaRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizeChangshaRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
-            int roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
             baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
             baseScore = resolvePositiveBaseScore(rule);
         }
-        return resolveMinCarryScoreByBaseScore(baseScore);
+        return resolveRegionalMinCarryScore(gameType, baseScore, roundCount);
     }
 
     private long resolveMinCarryScoreForRuleConfig(Integer gameType, String ruleConfig) {
@@ -992,24 +1022,25 @@ public class GameServiceImpl implements IGameService {
             return 0L;
         JSONObject rule = parseRuleJson(ruleConfig);
         int baseScore = 0;
+        int roundCount = 8;
         if (gameType.equals(NiuMaConstants.GAME_TYPE_TAOJIANG_MAHJONG)) {
-            int roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizeTaojiangRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeTaojiangBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_HONGZHONG_MAHJONG)) {
-            int roundCount = normalizeHongzhongRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizeHongzhongRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeHongzhongBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_CHANGSHA_MAHJONG)) {
-            int roundCount = normalizeChangshaRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizeChangshaRoundCount(rule.getInteger("round_count"));
             baseScore = normalizeChangshaBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
-            int roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
+            roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
             baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"), roundCount);
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
             baseScore = resolvePositiveBaseScore(rule);
         }
-        return resolveMinCarryScoreByBaseScore(baseScore);
+        return resolveRegionalMinCarryScore(gameType, baseScore, roundCount);
     }
 
     private String getRuleConfigForVenue(Integer gameType, String venueId) {
@@ -1066,7 +1097,7 @@ public class GameServiceImpl implements IGameService {
     private long resolveMinCarryScoreForDistrict(Integer districtId, District district) {
         int baseScore = resolveDistrictBaseScore(districtId);
         if (baseScore > 0)
-            return resolveMinCarryScoreByBaseScore(baseScore);
+            return resolveRegionalMinCarryScore(gameTypeForDistrict(districtId), baseScore, resolveDistrictRoundCount(districtId));
         Long goldNeed = district == null ? null : district.getGoldNeed();
         if (goldNeed == null && districtId != null) {
             District entity = this.districtMapper.selectById(districtId);
@@ -1095,16 +1126,29 @@ public class GameServiceImpl implements IGameService {
         return districtId.equals(currentDistrictId);
     }
 
-    private void assertEnoughCarryScore(String playerId, long minCarryScore) {
-        if (minCarryScore <= 0L)
-            return;
+    private long resolveCarryScore(String playerId, long minCarryScore, Long requestedCarryScore) {
+        if (StringUtils.isEmpty(playerId))
+            throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Current login player is null, this is unexpected");
+        long minScore = Math.max(0L, minCarryScore);
+        long carryScore = requestedCarryScore == null ? minScore : requestedCarryScore;
+        if (carryScore < 0L)
+            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "携带积分不能为负数");
+        if (carryScore < minScore) {
+            String msg = "携带积分不足，最低需要" + minScore + "积分";
+            throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
+        }
         Long gold = this.capitalMapper.getGold(playerId);
         if (gold == null)
             gold = 0L;
-        if (gold < minCarryScore) {
-            String msg = "携带积分不足，最低需要" + minCarryScore + "积分，保险柜积分不参与游戏结算，请先从保险柜取出积分";
+        if (gold < carryScore) {
+            String msg = "携带积分不足，本次携带需要" + carryScore + "积分，当前可用积分" + gold + "，保险柜积分不参与游戏结算，请先从保险柜取出积分";
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
         }
+        return carryScore;
+    }
+
+    private void assertEnoughCarryScore(String playerId, long minCarryScore) {
+        resolveCarryScore(playerId, minCarryScore, null);
     }
 
     private void assertPlayerCanEnterGame(String playerId) {
@@ -1179,20 +1223,40 @@ public class GameServiceImpl implements IGameService {
         return null;
     }
 
+    private long resolveCarryScoreForCreate(String playerId, Integer gameType, String json, Long requestedCarryScore) {
+        return resolveCarryScore(playerId, resolveMinCarryScoreForCreate(gameType, json), requestedCarryScore);
+    }
+
     private void assertEnoughCarryScoreForCreate(String playerId, Integer gameType, String json) {
-        assertEnoughCarryScore(playerId, resolveMinCarryScoreForCreate(gameType, json));
+        resolveCarryScoreForCreate(playerId, gameType, json, null);
+    }
+
+    private Long resolveCarryScoreForVenue(String playerId, Venue venue, Long requestedCarryScore) {
+        if (venue == null || isPlayerInVenue(playerId, venue.getId()))
+            return requestedCarryScore;
+        return resolveCarryScore(playerId, resolveMinCarryScoreForVenue(venue), requestedCarryScore);
     }
 
     private void assertEnoughCarryScoreForVenue(String playerId, Venue venue) {
-        if (venue == null || isPlayerInVenue(playerId, venue.getId()))
-            return;
-        assertEnoughCarryScore(playerId, resolveMinCarryScoreForVenue(venue));
+        resolveCarryScoreForVenue(playerId, venue, null);
+    }
+
+    private Long resolveCarryScoreForDistrict(String playerId, Integer districtId, District district, Long requestedCarryScore) {
+        if (isPlayerInDistrict(playerId, districtId))
+            return requestedCarryScore;
+        return resolveCarryScore(playerId, resolveMinCarryScoreForDistrict(districtId, district), requestedCarryScore);
     }
 
     private void assertEnoughCarryScoreForDistrict(String playerId, Integer districtId, District district) {
-        if (isPlayerInDistrict(playerId, districtId))
-            return;
-        assertEnoughCarryScore(playerId, resolveMinCarryScoreForDistrict(districtId, district));
+        resolveCarryScoreForDistrict(playerId, districtId, district, null);
+    }
+
+    private String buildEnterVenueBase64(Long carryScore) {
+        JSONObject extra = new JSONObject();
+        long score = carryScore == null ? 0L : carryScore;
+        extra.put("carryScore", score);
+        extra.put("carry_score", score);
+        return Base64.encode(extra.toJSONString().getBytes(StandardCharsets.UTF_8));
     }
 
     private void responseHttpException(DeferredResult<ResponseEntity<AjaxResult> > result, HttpException ex) {
@@ -1801,16 +1865,19 @@ public class GameServiceImpl implements IGameService {
                 playerId = player.getId();
             assertPlayerGameAllowed(playerId, gameType);
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, null, (playerIdIn, venueIdIn) -> {
+                String json = decodeRuleConfigBase64(dto.getBase64());
+                Long carryScore = resolveCarryScoreForCreate(playerIdIn, dto.getGameType(), json, dto.getCarryScore());
                 // 创建游戏
                 String venueId = createGame(dto.getGameType(), playerIdIn, dto.getBase64());
                 // 响应进入新创建的场地
-                responseEnterVenue(result, playerIdIn, venueId);
+                responseEnterVenue(result, playerIdIn, venueId, carryScore);
             });
             if (actionDeferred != null) {
                 // 等待服务器处理离开场地命令
                 actionDeferred.setAction(NiuMaConstants.ACTION_CREATE_GAME);
                 actionDeferred.setGameType(gameType);
                 actionDeferred.setBase64(dto.getBase64());
+                actionDeferred.setCarryScore(dto.getCarryScore());
                 actionDeferred.setResult(result);
             }
         } catch (HttpException ex) {
@@ -1921,6 +1988,10 @@ public class GameServiceImpl implements IGameService {
     }
 
     private void responseEnterVenue(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, String venueId) {
+        responseEnterVenue(result, playerId, venueId, null);
+    }
+
+    private void responseEnterVenue(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, String venueId, Long carryScore) {
         // 分配游戏到服务器
         String serverId = assignVenue2Server(venueId);
         if (StringUtils.isEmpty(serverId))
@@ -1930,16 +2001,20 @@ public class GameServiceImpl implements IGameService {
         PlayerEnter enterData = new PlayerEnter();
         enterData.setAuthorizedTime(System.currentTimeMillis());
         enterData.setAuthorizedVenue(venueId);
+        enterData.setCarryScore(carryScore);
         this.redisCache.setCacheObject(redisKey, enterData);
         redisKey = NiuMaRedisKeys.PLAYER_AUTHORIZED_VENUE + playerId;
         this.redisPrimitive.set(redisKey, venueId);
         // 返回响应HTTP请求
         String address = getServerAddress(serverId);
         String wsAddress = getServerWSAddress(serverId);
+        String base64 = buildEnterVenueBase64(carryScore);
         AjaxResult ajax = AjaxResult.successEx();
         ajax.put("address", address);
         ajax.put("wsAddress", wsAddress);
         ajax.put("venueId", venueId);
+        ajax.put("carryScore", carryScore == null ? 0L : carryScore);
+        ajax.put("base64", base64);
         result.setResult(ResponseEntity.ok(ajax));
     }
 
@@ -1960,9 +2035,9 @@ public class GameServiceImpl implements IGameService {
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_STATUS_ERROR);
             assertPlayerGameAllowed(playerId, entity.getGameType());
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, dto.getVenueId(), (playerIdIn, venueIdIn) -> {
-                assertEnoughCarryScoreForVenue(playerIdIn, entity);
+                Long carryScore = resolveCarryScoreForVenue(playerIdIn, entity, dto.getCarryScore());
                 // 响应进入指定场地
-                responseEnterVenue(result, playerIdIn, venueIdIn);
+                responseEnterVenue(result, playerIdIn, venueIdIn, carryScore);
             });
             if (actionDeferred != null) {
                 // 等待服务器处理离开场地命令
@@ -1970,6 +2045,7 @@ public class GameServiceImpl implements IGameService {
                 // 离开成功后进入指定场地
                 actionDeferred.setVenueId(dto.getVenueId());
                 actionDeferred.setGameType(dto.getGameType());
+                actionDeferred.setCarryScore(dto.getCarryScore());
                 actionDeferred.setResult(result);
             }
         } catch (HttpException ex) {
@@ -2022,6 +2098,7 @@ public class GameServiceImpl implements IGameService {
         EnterDTO tmp = new EnterDTO();
         tmp.setVenueId(venueId);
         tmp.setGameType(gameType);
+        tmp.setCarryScore(dto.getCarryScore());
         this.enter(result, tmp);
     }
 
@@ -2063,8 +2140,12 @@ public class GameServiceImpl implements IGameService {
     }
 
     private void responseEnterDistrict(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId) {
+        responseEnterDistrict(result, playerId, districtId, null);
+    }
+
+    private void responseEnterDistrict(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId, Long requestedCarryScore) {
         try {
-            this.responseEnterDistrictImpl(result, playerId, districtId);
+            this.responseEnterDistrictImpl(result, playerId, districtId, requestedCarryScore);
         } catch (HttpException ex) {
             responseHttpException(result, ex);
         } catch (Exception ex) {
@@ -2074,7 +2155,7 @@ public class GameServiceImpl implements IGameService {
         }
     }
 
-    private void responseEnterDistrictImpl(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId) {
+    private void responseEnterDistrictImpl(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId, Long requestedCarryScore) {
         /**
      * 分配场地策略：
          * a、从Redis中获取指定区域(districtId)的未满场地列表NFL，并按玩家人数从多到少排列，划分NFL中玩家数量大于的前部分为NFL1，玩家数量为0的后部分为NFL2
@@ -2096,7 +2177,7 @@ public class GameServiceImpl implements IGameService {
         assertDistrictAvailable(districtId);
         assertPlayerCanEnterGame(playerId);
         assertPlayerGameAllowed(playerId, gameTypeForDistrict(districtId));
-        assertEnoughCarryScoreForDistrict(playerId, districtId, district);
+        Long carryScore = resolveCarryScoreForDistrict(playerId, districtId, district, requestedCarryScore);
         String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
         Map<String, String> notFullMap = this.redisPrimitive.getMap(notFullKey);
         List<String> notFullVenues = null;
@@ -2251,7 +2332,7 @@ public class GameServiceImpl implements IGameService {
             }
         }
         if (StringUtils.isNotEmpty(authorizedVenueId)) {
-            this.responseEnterVenue(result, playerId, authorizedVenueId);
+            this.responseEnterVenue(result, playerId, authorizedVenueId, carryScore);
             return;
         }
         // 清空轨迹记录
@@ -2265,7 +2346,7 @@ public class GameServiceImpl implements IGameService {
         authorizedKey = authorizedKey.replace("{0}", districtId.toString());
         authorizedKey = authorizedKey.replace("{1}", authorizedVenueId);
         this.redisPrimitive.hSet(authorizedKey, playerId, nowTime.toString());
-        this.responseEnterVenue(result, playerId, authorizedVenueId);
+        this.responseEnterVenue(result, playerId, authorizedVenueId, carryScore);
     }
 
     private String createDistrictVenue(Integer districtId) {
@@ -2577,7 +2658,7 @@ public class GameServiceImpl implements IGameService {
     private int resolveHongzhongBaseScore(int id) {
         if (id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R1 || id == NiuMaConstants.DISTRICT_HONGZHONG_B5_R8) return 5;
         if (id == NiuMaConstants.DISTRICT_HONGZHONG_B10_R1 || id == NiuMaConstants.DISTRICT_HONGZHONG_B10_R8) return 10;
-        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B25_R1) return 25;
+        if (id == NiuMaConstants.DISTRICT_HONGZHONG_B25_R1) return 1;
         if (id == NiuMaConstants.DISTRICT_HONGZHONG_B2_R8) return 2;
         if (id == NiuMaConstants.DISTRICT_HONGZHONG_B20_R8) return 20;
         return 1;
@@ -2643,7 +2724,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     @Override
-    public void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId) {
+    public void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId, Long carryScore) {
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         District entity = this.districtMapper.selectById(districtId);
         if (entity == null) {
@@ -2664,13 +2745,14 @@ public class GameServiceImpl implements IGameService {
         assertPlayerGameAllowed(player.getId(), gameTypeForDistrict(districtId));
         MqCommandDeferred actionDeferred = this.checkBeforeEnter(player.getId(), venueId, (playerIdIn, venueIdIn) -> {
             // 响应进入指定区域
-            responseEnterDistrict(result, playerIdIn, districtId);
+            responseEnterDistrict(result, playerIdIn, districtId, carryScore);
         });
         if (actionDeferred != null) {
             // 等待服务器处理离开场地命令
             actionDeferred.setAction(NiuMaConstants.ACTION_ENTER_DISTRICT);
             // 离开成功后进入指定区域
             actionDeferred.setVenueId(venueId);
+            actionDeferred.setCarryScore(carryScore);
             actionDeferred.setResult(result);
         }
     }
@@ -3007,10 +3089,12 @@ public class GameServiceImpl implements IGameService {
         }
         if (action == NiuMaConstants.ACTION_CREATE_GAME) {
             try {
+                String json = decodeRuleConfigBase64(cmd.getBase64());
+                Long carryScore = resolveCarryScoreForCreate(cmd.getPlayerId(), cmd.getGameType(), json, cmd.getCarryScore());
                 // 创建游戏
                 String venueId = createGame(cmd.getGameType(), cmd.getPlayerId(), cmd.getBase64());
                 // 响应进入新创建的场地
-                responseEnterVenue(deferredResult, cmd.getPlayerId(), venueId);
+                responseEnterVenue(deferredResult, cmd.getPlayerId(), venueId, carryScore);
             } catch (HttpException ex) {
                 AjaxResult ajax = new AjaxResult();
                 if (StringUtils.isNotEmpty(ex.getCode()))
@@ -3027,16 +3111,16 @@ public class GameServiceImpl implements IGameService {
                 if (venue == null)
                     throw new NotFoundException(NiuMaCodeEnum.VENUE_NOT_EXIST);
                 assertPlayerCanEnterGame(playerId);
-                assertEnoughCarryScoreForVenue(playerId, venue);
+                Long carryScore = resolveCarryScoreForVenue(playerId, venue, cmd.getCarryScore());
                 // 响应进入指定场地
-                responseEnterVenue(deferredResult, playerId, venueId);
+                responseEnterVenue(deferredResult, playerId, venueId, carryScore);
             } catch (HttpException ex) {
                 responseHttpException(deferredResult, ex);
             }
         } else if (action == NiuMaConstants.ACTION_ENTER_DISTRICT) {
             String playerId = cmd.getPlayerId();
             // 响应进入指定区域
-            responseEnterDistrict(deferredResult, playerId, districtId);
+            responseEnterDistrict(deferredResult, playerId, districtId, cmd.getCarryScore());
         }
     }
 

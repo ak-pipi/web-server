@@ -863,7 +863,7 @@ public class GameServiceImpl implements IGameService {
 
         int roundCount = normalizePaodekuaiRoundCount(raw.getInteger("round_count"));
         int baseScore = normalizePaodekuaiBaseScore(raw.getInteger("base_score"), roundCount);
-        fillPaodekuaiRuleDefaults(rule, baseScore, roundCount);
+        fillPaodekuaiRuleDefaults(rule, baseScore, roundCount, resolvePaodekuaiZhaNiaoFlag(raw));
 
         Integer maxScore = raw.getInteger("max_score");
         if (maxScore != null && maxScore >= 0)
@@ -879,8 +879,8 @@ public class GameServiceImpl implements IGameService {
     private int normalizePaodekuaiBaseScore(Integer baseScore, int roundCount) {
         int score = baseScore == null ? 0 : baseScore;
         int[] validScores = roundCount == 1
-                ? new int[] {5, 10, 25}
-                : new int[] {1, 2, 5, 10, 20};
+                ? new int[] {50, 100}
+                : new int[] {3, 5, 10, 20};
         for (int validScore : validScores) {
             if (score == validScore)
                 return score;
@@ -888,8 +888,17 @@ public class GameServiceImpl implements IGameService {
         return validScores[0];
     }
 
+    private int resolvePaodekuaiScoreScale(int baseScore, int roundCount) {
+        return roundCount == 8 && (baseScore == 3 || baseScore == 5) ? 10 : 1;
+    }
+
     private void fillPaodekuaiRuleDefaults(JSONObject rule, int baseScore, int roundCount) {
+        fillPaodekuaiRuleDefaults(rule, baseScore, roundCount, false);
+    }
+
+    private void fillPaodekuaiRuleDefaults(JSONObject rule, int baseScore, int roundCount, boolean zhaNiao) {
         rule.put("base_score", baseScore);
+        rule.put("score_scale", resolvePaodekuaiScoreScale(baseScore, roundCount));
         rule.put("round_count", roundCount);
         rule.put("player_count", 2);
         rule.put("card_count", 15);
@@ -899,11 +908,26 @@ public class GameServiceImpl implements IGameService {
         rule.put("must_include_spade3", false);
         rule.put("first_lead_rule", "first_round_random_then_winner");
         rule.put("triple_carry_any_two", true);
-        rule.put("bomb_double", true);
-        rule.put("spring_double", true);
+        rule.put("bomb_double", false);
+        rule.put("bomb_score", 10);
+        rule.put("spring_double", false);
+        rule.put("zha_niao", zhaNiao);
+        rule.put("bird_enabled", zhaNiao);
+        rule.put("bird_card", "heart_10");
+        rule.put("bird_multiplier", zhaNiao ? 2 : 1);
         rule.put("auto_play_timeout", 180000);
         rule.put("deck_rule", "remove_jokers_3x2_3xA_1xK");
         putRoomFee(rule, resolveDefaultRoomFee(baseScore));
+    }
+
+    private boolean resolvePaodekuaiZhaNiaoFlag(JSONObject rule) {
+        if (rule == null)
+            return false;
+        Boolean zhaNiao = rule.getBoolean("zha_niao");
+        if (zhaNiao != null)
+            return zhaNiao;
+        Boolean birdEnabled = rule.getBoolean("bird_enabled");
+        return birdEnabled != null && birdEnabled;
     }
 
     private int resolveDefaultRoomFee(int baseScore) {
@@ -987,8 +1011,37 @@ public class GameServiceImpl implements IGameService {
                 if (baseScore == 20) return 800L;
                 if (baseScore == 25 || baseScore == 30) return 1200L;
             }
+        } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
+            return resolvePaodekuaiMinCarryScore(baseScore, roundCount, false);
         }
         return resolveMinCarryScoreByBaseScore(baseScore);
+    }
+
+    private long resolvePaodekuaiMinCarryScore(int baseScore, int roundCount, boolean zhaNiao) {
+        if (roundCount == 1) {
+            if (baseScore == 50) return 300L;
+            if (baseScore == 100) return 600L;
+        } else if (roundCount == 8) {
+            if (baseScore == 3) return 30L;
+            if (baseScore == 5) return 50L;
+            if (baseScore == 10) return zhaNiao ? 200L : 100L;
+            if (baseScore == 20) return 400L;
+        }
+        return resolveMinCarryScoreByBaseScore(baseScore);
+    }
+
+    private long resolvePaodekuaiMinCarryScoreForDistrict(Integer districtId) {
+        if (districtId == null)
+            return 0L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8)) return 30L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8)) return 50L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8)) return 100L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8)) return 200L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B20_R8)) return 400L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1)) return 300L;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1) ||
+                districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1)) return 600L;
+        return 0L;
     }
 
     private long resolveMinCarryScoreForCreate(Integer gameType, String json) {
@@ -1009,6 +1062,7 @@ public class GameServiceImpl implements IGameService {
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
             roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
             baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"), roundCount);
+            return resolvePaodekuaiMinCarryScore(baseScore, roundCount, resolvePaodekuaiZhaNiaoFlag(rule));
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
@@ -1035,6 +1089,7 @@ public class GameServiceImpl implements IGameService {
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_PAO_DE_KUAI)) {
             roundCount = normalizePaodekuaiRoundCount(rule.getInteger("round_count"));
             baseScore = normalizePaodekuaiBaseScore(rule.getInteger("base_score"), roundCount);
+            return resolvePaodekuaiMinCarryScore(baseScore, roundCount, resolvePaodekuaiZhaNiaoFlag(rule));
         } else if (gameType.equals(NiuMaConstants.GAME_TYPE_DOU_DI_ZHU) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YIYANG_WAI_HU_ZI) ||
                 gameType.equals(NiuMaConstants.GAME_TYPE_YUANJIANG_QIAN_FEN)) {
@@ -1095,6 +1150,11 @@ public class GameServiceImpl implements IGameService {
     }
 
     private long resolveMinCarryScoreForDistrict(Integer districtId, District district) {
+        if (isPaodekuaiDistrict(districtId)) {
+            long score = resolvePaodekuaiMinCarryScoreForDistrict(districtId);
+            if (score > 0L)
+                return score;
+        }
         int baseScore = resolveDistrictBaseScore(districtId);
         if (baseScore > 0)
             return resolveRegionalMinCarryScore(gameTypeForDistrict(districtId), baseScore, resolveDistrictRoundCount(districtId));
@@ -2466,8 +2526,7 @@ public class GameServiceImpl implements IGameService {
             entity.setNumber(number);
             entity.setVenueId(venueId);
             entity.setLevel(GuanDanLevel.Beginner.ordinal());
-            entity.setRuleConfig(buildPaodekuaiDistrictRuleConfig(resolvePaodekuaiBaseScore(districtId),
-                    resolvePaodekuaiRoundCount(districtId)));
+            entity.setRuleConfig(buildPaodekuaiDistrictRuleConfig(districtId));
             this.paodekuaiMapper.insert(entity);
         }
         // 歪胡子 districts (29-32)
@@ -2639,6 +2698,16 @@ public class GameServiceImpl implements IGameService {
         return rule.toJSONString();
     }
 
+    private String buildPaodekuaiDistrictRuleConfig(int districtId) {
+        JSONObject rule = new JSONObject();
+        rule.put("level", 3);
+        fillPaodekuaiRuleDefaults(rule,
+                resolvePaodekuaiBaseScore(districtId),
+                resolvePaodekuaiRoundCount(districtId),
+                isPaodekuaiZhaNiaoDistrict(districtId));
+        return rule.toJSONString();
+    }
+
     // ==================== District -> baseScore/roundCount 映射 ====================
 
     private int resolveTaojiangBaseScore(int id) {
@@ -2684,18 +2753,26 @@ public class GameServiceImpl implements IGameService {
         return 8;
     }
     private int resolvePaodekuaiBaseScore(int id) {
-        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1 || id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8) return 5;
-        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1 || id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8) return 10;
-        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1) return 25;
-        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8) return 2;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8) return 3;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8) return 5;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8 ||
+                id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8) return 10;
         if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B20_R8) return 20;
-        return 1;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1) return 50;
+        if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1 ||
+                id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1) return 100;
+        return 3;
     }
     private int resolvePaodekuaiRoundCount(int id) {
         if (id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1 ||
                 id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1 ||
                 id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1) return 1;
         return 8;
+    }
+
+    private boolean isPaodekuaiZhaNiaoDistrict(int id) {
+        return id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8 ||
+                id == NiuMaConstants.DISTRICT_PAO_DE_KUAI_B20_R8;
     }
     private int resolveWaihuziBaseScore(int id) {
         if (id == NiuMaConstants.DISTRICT_WAIHUZI_B1_R8) return 1;
@@ -3005,6 +3082,11 @@ public class GameServiceImpl implements IGameService {
     }
 
     private String resolveDistrictGameModeText(Integer districtId) {
+        if (districtId != null && isPaodekuaiDistrict(districtId)) {
+            String text = resolvePaodekuaiDistrictLabel(districtId);
+            if (StringUtils.isNotEmpty(text))
+                return text;
+        }
         int baseScore = resolveDistrictBaseScore(districtId);
         int roundCount = resolveDistrictRoundCount(districtId);
         StringBuilder builder = new StringBuilder();
@@ -3016,6 +3098,20 @@ public class GameServiceImpl implements IGameService {
             builder.append("台桌").append(baseScore);
         }
         return builder.length() == 0 ? "快速场" : builder.toString();
+    }
+
+    private String resolvePaodekuaiDistrictLabel(Integer districtId) {
+        if (districtId == null)
+            return null;
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8)) return "3毛跑得快";
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8)) return "5毛跑得快";
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8)) return "1块跑的快";
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R8)) return "1块跑扎鸟";
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B20_R8)) return "2块跑扎鸟";
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1)) return "单局5块跑";
+        if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1) ||
+                districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1)) return "单局10块跑";
+        return null;
     }
 
     private String resolvePublicRoomModeText(RoomItemDTO item) {
@@ -3901,8 +3997,13 @@ public class GameServiceImpl implements IGameService {
         dto.setPlayers(getRegionalRecordPlayers(record, playerCount, playerMap));
         dto.setScores(getRegionalRecordScores(record, playerCount));
         dto.setWinGolds(getRegionalRecordWinGolds(record, playerCount));
+        dto.setScoreScale(normalizeRecordScoreScale(record.getScoreScale()));
         fillRecordRetention(dto, record.getTime());
         return dto;
+    }
+
+    private int normalizeRecordScoreScale(Integer scoreScale) {
+        return scoreScale != null && scoreScale > 0 ? scoreScale : 1;
     }
 
     private List<PlayerBaseDTO> getRegionalRecordPlayers(GameRegionalRecord record,

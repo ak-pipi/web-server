@@ -32,7 +32,13 @@ source "$CONFIG_FILE"
 : "${CLIENT_ENV_CONFIG:=}"
 : "${EXPECTED_AWS_ACCOUNT_ID:=}"
 : "${EXPECTED_DEPLOY_ROLE:=}"
+: "${AWS_MAX_ATTEMPTS:=10}"
+: "${AWS_RETRY_MODE:=adaptive}"
+: "${AWS_REQUEST_CHECKSUM_CALCULATION:=when_required}"
+: "${AWS_RESPONSE_CHECKSUM_VALIDATION:=when_required}"
+: "${AWS_S3_COMMAND_ATTEMPTS:=4}"
 export AWS_REGION AWS_DEFAULT_REGION="$AWS_REGION"
+export AWS_MAX_ATTEMPTS AWS_RETRY_MODE AWS_REQUEST_CHECKSUM_CALCULATION AWS_RESPONSE_CHECKSUM_VALIDATION
 [[ -z "${AWS_PROFILE:-}" ]] || export AWS_PROFILE
 [[ -d "$CLIENT_DIR" ]] || die "未找到 Cocos 项目: ${CLIENT_DIR}"
 CLIENT_DIR="$(cd -- "$CLIENT_DIR" && pwd)"
@@ -96,15 +102,39 @@ jq -n --arg environment "$CLIENT_ENVIRONMENT_NAME" --arg apiBaseUrl "$CLIENT_API
   '{environment:$environment, apiBaseUrl:$apiBaseUrl}' > "$RUNTIME_CONFIG_PATH"
 printf '写入 Cocos 运行配置: %s -> %s\n' "$CLIENT_ENV_CONFIG" "$CLIENT_API_BASE_URL"
 
+aws_s3_retry() {
+  local attempt=1
+  local max_attempts="$AWS_S3_COMMAND_ATTEMPTS"
+  local delay_seconds=5
+
+  while true; do
+    "$@" && return 0
+    local status=$?
+    if (( attempt >= max_attempts )); then
+      return "$status"
+    fi
+    printf 'S3 命令失败（第 %d/%d 次），%d 秒后重试…\n' \
+      "$attempt" "$max_attempts" "$delay_seconds" >&2
+    sleep "$delay_seconds"
+    attempt=$((attempt + 1))
+    delay_seconds=$((delay_seconds * 2))
+    if (( delay_seconds > 30 )); then
+      delay_seconds=30
+    fi
+  done
+}
+
 printf '上传网页资源到私有 S3 Bucket %s…\n' "$WEB_BUCKET"
-aws s3 sync "${WEB_BUILD_DIR}/" "s3://${WEB_BUCKET}/" --delete \
+aws_s3_retry aws s3 sync "${WEB_BUILD_DIR}/" "s3://${WEB_BUCKET}/" --delete \
+  --no-progress \
   --cache-control 'public,max-age=31536000,immutable'
 
 upload_no_cache() {
   local relative_path="$1" content_type="$2"
   local local_path="${WEB_BUILD_DIR}/${relative_path}"
   [[ -f "$local_path" ]] || return 0
-  aws s3 cp "$local_path" "s3://${WEB_BUCKET}/${relative_path}" \
+  aws_s3_retry aws s3 cp "$local_path" "s3://${WEB_BUCKET}/${relative_path}" \
+    --no-progress \
     --cache-control 'no-store,no-cache,must-revalidate' \
     --content-type "$content_type"
 }

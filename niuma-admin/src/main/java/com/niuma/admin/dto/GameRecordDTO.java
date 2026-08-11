@@ -19,6 +19,7 @@ public class GameRecordDTO {
     private List<PlayerBaseDTO> players;
     private List<Integer> scores;
     private List<Long> winGolds;
+    private Integer scoreScale;
     private String time;
     private Boolean hasReplay;
     private String expireTime;

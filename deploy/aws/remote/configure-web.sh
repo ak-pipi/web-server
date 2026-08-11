@@ -47,7 +47,21 @@ chmod 0640 /opt/niuma/web/niuma-admin.jar
 
 # Redis and RabbitMQ intentionally live on this small web EC2 in phase 1. Their
 # ports are reachable only from the game security group, never from the internet.
-docker rm -f niuma-redis niuma-rabbit >/dev/null 2>&1 || true
+remove_container_if_exists() {
+  local name="$1"
+  for _ in $(seq 1 10); do
+    if ! docker ps -a --format '{{.Names}}' | grep -Fxq "$name"; then
+      return 0
+    fi
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  printf '容器名称仍被占用，无法重建: %s\n' "$name" >&2
+  docker ps -a --filter "name=^/${name}$" >&2 || true
+  exit 1
+}
+remove_container_if_exists niuma-redis
+remove_container_if_exists niuma-rabbit
 docker run -d --name niuma-redis --restart unless-stopped \
   -p 6379:6379 -v /opt/niuma/data/redis:/data \
   redis:7.4-alpine redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"
@@ -152,7 +166,7 @@ while IFS= read -r migration_name; do
   aws s3 cp "s3://${BUCKET}/${MIGRATION_PREFIX}/${migration_name}" "$migration"
   printf '执行 SQL 迁移：%s\n' "$migration_name"
   mysql_client < "$migration"
-  mysql_client -e "INSERT INTO schema_migration (migration_name) VALUES ('${migration_name}')"
+  mysql_client -e "INSERT IGNORE INTO schema_migration (migration_name) VALUES ('${migration_name}')"
 done < /opt/niuma/sql/migrations.txt
 
 if [[ "$RESET_PLAYER_DATA" == '1' ]]; then

@@ -25,6 +25,7 @@ public class GameRegionalRecord {
     private Long winGold1;
     private Long winGold2;
     private Long winGold3;
+    private Integer scoreScale;
     private String randomSeedHash;
     private String playback;
     private LocalDateTime time;

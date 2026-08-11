@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS `game_paodekuai_record` (
   `player_id1` varchar(64) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '座位1玩家id',
   `score1` int NOT NULL DEFAULT '0' COMMENT '玩家1得分',
   `wingold1` bigint NOT NULL DEFAULT '0' COMMENT '玩家1本局输赢金币',
+  `score_scale` int NOT NULL DEFAULT '1' COMMENT '积分显示倍率',
   `random_seed_hash` varchar(128) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '随机种子hash',
   `playback` mediumtext COLLATE utf8mb4_general_ci COMMENT '回放数据(MessagePack+zlib+Base64)',
   `time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',

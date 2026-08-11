@@ -137,6 +137,8 @@ SQL_MIGRATIONS+=("${SQL_DIR}/v26_income_box_partial_withdraw.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v27_fix_regional_record_time.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v28_rename_regional_district_display_names.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v29_fix_taojiang_district_labels.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v30_paodekuai_rule_options.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v31_paodekuai_score_scale.sql")
 
 validate_sql_migration_manifest() {
   local migration migration_name listed listed_path

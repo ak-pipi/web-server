@@ -205,8 +205,10 @@ public class AgencyController {
      * 取出当前代理收益箱积分。
      */
     @PostMapping("/income-box/withdraw")
-    public AjaxResult withdrawIncomeBoxNormal(@RequestBody(required = false) IncomeBoxWithdrawDTO dto) {
-        return this.agencyService.withdrawIncomeBox(dto == null ? null : dto.getAmount());
+    public AjaxResult withdrawIncomeBoxNormal(@RequestBody(required = false) IncomeBoxWithdrawDTO dto,
+                                              @RequestParam(value = "amount", required = false) Long amount) {
+        Long requestedAmount = dto != null && dto.getAmount() != null ? dto.getAmount() : amount;
+        return this.agencyService.withdrawIncomeBox(requestedAmount);
     }
 
     /**

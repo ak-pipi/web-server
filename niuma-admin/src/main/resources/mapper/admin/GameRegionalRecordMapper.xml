@@ -19,6 +19,7 @@
         <result column="wingold1" property="winGold1" />
         <result column="wingold2" property="winGold2" />
         <result column="wingold3" property="winGold3" />
+        <result column="score_scale" property="scoreScale" />
         <result column="random_seed_hash" property="randomSeedHash" />
         <result column="time" property="time" />
     </resultMap>
@@ -28,6 +29,7 @@
         `player_id0`, `player_id1`, `player_id2`, `player_id3`,
         `score0`, `score1`, `score2`, `score3`,
         `wingold0`, `wingold1`, `wingold2`, `wingold3`,
+        1 as `score_scale`,
         `random_seed_hash`, `time`
     </sql>
 
@@ -39,6 +41,7 @@
         null as `score2`, null as `score3`,
         `wingold0`, `wingold1`,
         null as `wingold2`, null as `wingold3`,
+        ifnull(`score_scale`, 1) as `score_scale`,
         `random_seed_hash`, `time`
     </sql>
 

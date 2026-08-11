@@ -12,4 +12,5 @@ import lombok.EqualsAndHashCode;
 public class AgencyStatsPageResult extends PageResult<AgencyStatsDTO> {
     private Long totalScoreDelta = 0L;
     private Long totalRounds = 0L;
+    private AgencyStatsDTO selfStats;
 }

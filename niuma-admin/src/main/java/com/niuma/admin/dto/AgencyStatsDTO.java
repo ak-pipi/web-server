@@ -38,4 +38,7 @@ public class AgencyStatsDTO {
     private Long giftReceived;
 
     private Boolean hasChildren;
+
+    /** 是否为当前查询账号本人的统计行。 */
+    private Boolean self;
 }

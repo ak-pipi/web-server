@@ -51,6 +51,7 @@ public class AgencyStatsSupport {
         String statType = normalizeStatType(dto.getStatType());
         String keyword = StringUtils.trim(dto.getKeyword()).toLowerCase(Locale.ROOT);
         DateRange statRange = parseDateRange(dto);
+        AgencyStatsDTO selfStats = buildSelfStats(parentPlayerId, parentNickname, statRange);
         List<AgencyStatsDTO> rows;
         if (STAT_TYPE_GROUP.equals(statType)) {
             rows = queryDirectAgencyRows(parentPlayerId, parentNickname, keyword);
@@ -80,6 +81,7 @@ public class AgencyStatsSupport {
         result.setRecords(records);
         result.setTotalScoreDelta(rows.stream().mapToLong(row -> nvl(row.getScoreDelta())).sum());
         result.setTotalRounds(rows.stream().mapToLong(row -> nvl(row.getRoundCount())).sum());
+        result.setSelfStats(selfStats);
         return result;
     }
 
@@ -187,6 +189,9 @@ public class AgencyStatsSupport {
             if (player == null || (player.getDelFlag() != null && player.getDelFlag() != 0)) {
                 continue;
             }
+            if (parentPlayerId.equals(player.getId())) {
+                continue;
+            }
             AgencyStatsDTO row = toStatsDTO(player, agencyMap.get(player.getId()), parentPlayerId, parentNickname);
             if (matchesKeyword(row, keyword)) {
                 rows.add(row);
@@ -215,7 +220,26 @@ public class AgencyStatsSupport {
         dto.setTotalConsume(0L);
         dto.setGiftReceived(0L);
         dto.setHasChildren(agency != null);
+        dto.setSelf(false);
         return dto;
+    }
+
+    private AgencyStatsDTO buildSelfStats(String parentPlayerId, String parentNickname, DateRange statRange) {
+        if (StringUtils.isEmpty(parentPlayerId) || Agency.ROOT_PLAYER_ID.equals(parentPlayerId)) {
+            return null;
+        }
+        Player player = playerMapper.selectById(parentPlayerId);
+        if (player == null || (player.getDelFlag() != null && player.getDelFlag() != 0)) {
+            return null;
+        }
+        Agency agency = agencyMapper.selectOne(
+                Wrappers.lambdaQuery(Agency.class)
+                        .eq(Agency::getPlayerId, parentPlayerId)
+                        .and(w -> w.eq(Agency::getStatus, Agency.STATUS_NORMAL).or().isNull(Agency::getStatus)));
+        AgencyStatsDTO row = toStatsDTO(player, agency, parentPlayerId, parentNickname);
+        row.setSelf(true);
+        applyGameStats(row, queryGameStatMap(Collections.singletonList(parentPlayerId), statRange).get(parentPlayerId));
+        return row;
     }
 
     private boolean matchesKeyword(AgencyStatsDTO row, String keyword) {

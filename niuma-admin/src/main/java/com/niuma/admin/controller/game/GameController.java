@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import javax.validation.Valid;
+import java.math.BigDecimal;
 
 /**
  * 游戏相关控制器
@@ -106,7 +107,7 @@ public class GameController {
      */
     @PostMapping("/enter/district")
     public DeferredResult<ResponseEntity<AjaxResult>> enterDistrict(@RequestParam("districtId") Integer districtId,
-                                                                    @RequestParam(value = "carryScore", required = false) Long carryScore) {
+                                                                    @RequestParam(value = "carryScore", required = false) BigDecimal carryScore) {
         DeferredResult<ResponseEntity<AjaxResult> > result = new DeferredResult<>();
         try {
             this.gameService.enterDistrict(result, districtId, carryScore);

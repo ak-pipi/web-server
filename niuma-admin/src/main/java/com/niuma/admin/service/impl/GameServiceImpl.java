@@ -41,6 +41,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import javax.annotation.Resource;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -57,6 +59,7 @@ public class GameServiceImpl implements IGameService {
     private static final int DOUDIZHU_BOTTOM_CARD_COUNT = 3;
     private static final int DOUDIZHU_AUTO_PLAY_TIMEOUT = 180000;
     private static final long MIN_CARRY_SCORE_MULTIPLIER = 8L;
+    private static final int MONEY_SCALE = 1;
 
     /**
      * 用于Java内部数据类型的缓存
@@ -889,7 +892,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     private int resolvePaodekuaiScoreScale(int baseScore, int roundCount) {
-        return roundCount == 8 && (baseScore == 3 || baseScore == 5) ? 10 : 1;
+        return 10;
     }
 
     private void fillPaodekuaiRuleDefaults(JSONObject rule, int baseScore, int roundCount) {
@@ -899,6 +902,7 @@ public class GameServiceImpl implements IGameService {
     private void fillPaodekuaiRuleDefaults(JSONObject rule, int baseScore, int roundCount, boolean zhaNiao) {
         rule.put("base_score", baseScore);
         rule.put("score_scale", resolvePaodekuaiScoreScale(baseScore, roundCount));
+        rule.put("min_carry_score", resolvePaodekuaiMinCarryScore(baseScore, roundCount, zhaNiao));
         rule.put("round_count", roundCount);
         rule.put("player_count", 2);
         rule.put("card_count", 15);
@@ -1186,22 +1190,23 @@ public class GameServiceImpl implements IGameService {
         return districtId.equals(currentDistrictId);
     }
 
-    private long resolveCarryScore(String playerId, long minCarryScore, Long requestedCarryScore) {
+    private BigDecimal resolveCarryScore(String playerId, long minCarryScore, BigDecimal requestedCarryScore) {
         if (StringUtils.isEmpty(playerId))
             throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Current login player is null, this is unexpected");
-        long minScore = Math.max(0L, minCarryScore);
-        long carryScore = requestedCarryScore == null ? minScore : requestedCarryScore;
-        if (carryScore < 0L)
+        BigDecimal minScore = money(Math.max(0L, minCarryScore));
+        BigDecimal carryScore = requestedCarryScore == null ? minScore : money(requestedCarryScore);
+        if (carryScore.compareTo(BigDecimal.ZERO) < 0)
             throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "携带积分不能为负数");
-        if (carryScore < minScore) {
-            String msg = "携带积分不足，最低需要" + minScore + "积分";
+        if (carryScore.compareTo(minScore) < 0) {
+            String msg = "携带积分不足，最低需要" + formatMoney(minScore) + "积分";
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
         }
-        Long gold = this.capitalMapper.getGold(playerId);
+        BigDecimal gold = this.capitalMapper.getGold(playerId);
         if (gold == null)
-            gold = 0L;
-        if (gold < carryScore) {
-            String msg = "携带积分不足，本次携带需要" + carryScore + "积分，当前可用积分" + gold + "，保险柜积分不参与游戏结算，请先从保险柜取出积分";
+            gold = BigDecimal.ZERO;
+        gold = money(gold);
+        if (gold.compareTo(carryScore) < 0) {
+            String msg = "携带积分不足，本次携带需要" + formatMoney(carryScore) + "积分，当前可用积分" + formatMoney(gold) + "，保险柜积分不参与游戏结算，请先从保险柜取出积分";
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
         }
         return carryScore;
@@ -1283,7 +1288,7 @@ public class GameServiceImpl implements IGameService {
         return null;
     }
 
-    private long resolveCarryScoreForCreate(String playerId, Integer gameType, String json, Long requestedCarryScore) {
+    private BigDecimal resolveCarryScoreForCreate(String playerId, Integer gameType, String json, BigDecimal requestedCarryScore) {
         return resolveCarryScore(playerId, resolveMinCarryScoreForCreate(gameType, json), requestedCarryScore);
     }
 
@@ -1291,7 +1296,7 @@ public class GameServiceImpl implements IGameService {
         resolveCarryScoreForCreate(playerId, gameType, json, null);
     }
 
-    private Long resolveCarryScoreForVenue(String playerId, Venue venue, Long requestedCarryScore) {
+    private BigDecimal resolveCarryScoreForVenue(String playerId, Venue venue, BigDecimal requestedCarryScore) {
         if (venue == null || isPlayerInVenue(playerId, venue.getId()))
             return requestedCarryScore;
         return resolveCarryScore(playerId, resolveMinCarryScoreForVenue(venue), requestedCarryScore);
@@ -1301,7 +1306,7 @@ public class GameServiceImpl implements IGameService {
         resolveCarryScoreForVenue(playerId, venue, null);
     }
 
-    private Long resolveCarryScoreForDistrict(String playerId, Integer districtId, District district, Long requestedCarryScore) {
+    private BigDecimal resolveCarryScoreForDistrict(String playerId, Integer districtId, District district, BigDecimal requestedCarryScore) {
         if (isPlayerInDistrict(playerId, districtId))
             return requestedCarryScore;
         return resolveCarryScore(playerId, resolveMinCarryScoreForDistrict(districtId, district), requestedCarryScore);
@@ -1311,12 +1316,27 @@ public class GameServiceImpl implements IGameService {
         resolveCarryScoreForDistrict(playerId, districtId, district, null);
     }
 
-    private String buildEnterVenueBase64(Long carryScore) {
+    private String buildEnterVenueBase64(BigDecimal carryScore) {
         JSONObject extra = new JSONObject();
-        long score = carryScore == null ? 0L : carryScore;
+        BigDecimal score = carryScore == null ? money(0L) : money(carryScore);
         extra.put("carryScore", score);
         extra.put("carry_score", score);
         return Base64.encode(extra.toJSONString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private BigDecimal money(long value) {
+        return BigDecimal.valueOf(value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal money(BigDecimal value) {
+        if (value == null)
+            return money(0L);
+        return value.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private String formatMoney(BigDecimal value) {
+        BigDecimal normalized = money(value).stripTrailingZeros();
+        return normalized.scale() <= 0 ? normalized.toPlainString() : normalized.toPlainString();
     }
 
     private void responseHttpException(DeferredResult<ResponseEntity<AjaxResult> > result, HttpException ex) {
@@ -1489,10 +1509,10 @@ public class GameServiceImpl implements IGameService {
             diZhu = diZhuList1[diZhu];
         // 押金为底注的50倍，检查玩家是否有足够金币
         Integer cashPledge = diZhu * 50;
-        Long gold = this.capitalMapper.getGold(playerId);
+        BigDecimal gold = this.capitalMapper.getGold(playerId);
         if (gold == null)
-            gold = 0L;
-        if (gold < cashPledge)
+            gold = BigDecimal.ZERO;
+        if (gold.compareTo(BigDecimal.valueOf(cashPledge)) < 0)
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足，最低需要50倍底注数量金币");
         String number = this.generateNumber(new MahjongNumberTester(this.mahjongMapper));
         GameMahjong entity = new GameMahjong();
@@ -1529,10 +1549,10 @@ public class GameServiceImpl implements IGameService {
         diZhu = diZhuList[mode][diZhu];
         // 押金为底注的10倍，检查玩家是否有足够金币
         Integer cashPledge = diZhu * 10;
-        Long gold = this.capitalMapper.getGold(playerId);
+        BigDecimal gold = this.capitalMapper.getGold(playerId);
         if (gold == null)
-            gold = 0L;
-        if (gold < cashPledge)
+            gold = BigDecimal.ZERO;
+        if (gold.compareTo(BigDecimal.valueOf(cashPledge)) < 0)
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足，最低需底注10倍数量金币");
         String number = this.generateNumber(new BiJiNumberTester(this.biJiMapper));
         GameBiJi entity = new GameBiJi();
@@ -1575,10 +1595,10 @@ public class GameServiceImpl implements IGameService {
         diZhu = diZhuList[mode][diZhu];
         // 押金为底注的15倍，检查玩家是否有足够金币
         Integer cashPledge = diZhu * 15;
-        Long gold = this.capitalMapper.getGold(playerId);
+        BigDecimal gold = this.capitalMapper.getGold(playerId);
         if (gold == null)
-            gold = 0L;
-        if (gold < cashPledge)
+            gold = BigDecimal.ZERO;
+        if (gold.compareTo(BigDecimal.valueOf(cashPledge)) < 0)
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), "金币不足，需底注15倍底注数量金币");
         String number = this.generateNumber(new LackeyNumberTester(this.lackeyMapper));
         GameLackey entity = new GameLackey();
@@ -1926,7 +1946,7 @@ public class GameServiceImpl implements IGameService {
             assertPlayerGameAllowed(playerId, gameType);
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, null, (playerIdIn, venueIdIn) -> {
                 String json = decodeRuleConfigBase64(dto.getBase64());
-                Long carryScore = resolveCarryScoreForCreate(playerIdIn, dto.getGameType(), json, dto.getCarryScore());
+                BigDecimal carryScore = resolveCarryScoreForCreate(playerIdIn, dto.getGameType(), json, dto.getCarryScore());
                 // 创建游戏
                 String venueId = createGame(dto.getGameType(), playerIdIn, dto.getBase64());
                 // 响应进入新创建的场地
@@ -2051,7 +2071,7 @@ public class GameServiceImpl implements IGameService {
         responseEnterVenue(result, playerId, venueId, null);
     }
 
-    private void responseEnterVenue(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, String venueId, Long carryScore) {
+    private void responseEnterVenue(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, String venueId, BigDecimal carryScore) {
         // 分配游戏到服务器
         String serverId = assignVenue2Server(venueId);
         if (StringUtils.isEmpty(serverId))
@@ -2073,7 +2093,7 @@ public class GameServiceImpl implements IGameService {
         ajax.put("address", address);
         ajax.put("wsAddress", wsAddress);
         ajax.put("venueId", venueId);
-        ajax.put("carryScore", carryScore == null ? 0L : carryScore);
+        ajax.put("carryScore", carryScore == null ? money(0L) : money(carryScore));
         ajax.put("base64", base64);
         result.setResult(ResponseEntity.ok(ajax));
     }
@@ -2095,7 +2115,7 @@ public class GameServiceImpl implements IGameService {
                 throw new ForbiddenException(NiuMaCodeEnum.GAME_STATUS_ERROR);
             assertPlayerGameAllowed(playerId, entity.getGameType());
             MqCommandDeferred actionDeferred = this.checkBeforeEnter(playerId, dto.getVenueId(), (playerIdIn, venueIdIn) -> {
-                Long carryScore = resolveCarryScoreForVenue(playerIdIn, entity, dto.getCarryScore());
+                BigDecimal carryScore = resolveCarryScoreForVenue(playerIdIn, entity, dto.getCarryScore());
                 // 响应进入指定场地
                 responseEnterVenue(result, playerIdIn, venueIdIn, carryScore);
             });
@@ -2203,7 +2223,7 @@ public class GameServiceImpl implements IGameService {
         responseEnterDistrict(result, playerId, districtId, null);
     }
 
-    private void responseEnterDistrict(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId, Long requestedCarryScore) {
+    private void responseEnterDistrict(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId, BigDecimal requestedCarryScore) {
         try {
             this.responseEnterDistrictImpl(result, playerId, districtId, requestedCarryScore);
         } catch (HttpException ex) {
@@ -2215,7 +2235,7 @@ public class GameServiceImpl implements IGameService {
         }
     }
 
-    private void responseEnterDistrictImpl(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId, Long requestedCarryScore) {
+    private void responseEnterDistrictImpl(DeferredResult<ResponseEntity<AjaxResult> > result, String playerId, Integer districtId, BigDecimal requestedCarryScore) {
         /**
      * 分配场地策略：
          * a、从Redis中获取指定区域(districtId)的未满场地列表NFL，并按玩家人数从多到少排列，划分NFL中玩家数量大于的前部分为NFL1，玩家数量为0的后部分为NFL2
@@ -2237,7 +2257,7 @@ public class GameServiceImpl implements IGameService {
         assertDistrictAvailable(districtId);
         assertPlayerCanEnterGame(playerId);
         assertPlayerGameAllowed(playerId, gameTypeForDistrict(districtId));
-        Long carryScore = resolveCarryScoreForDistrict(playerId, districtId, district, requestedCarryScore);
+        BigDecimal carryScore = resolveCarryScoreForDistrict(playerId, districtId, district, requestedCarryScore);
         String notFullKey = NiuMaRedisKeys.DISTRICT_NOT_FULL_VENUES + districtId.toString();
         Map<String, String> notFullMap = this.redisPrimitive.getMap(notFullKey);
         List<String> notFullVenues = null;
@@ -2801,7 +2821,7 @@ public class GameServiceImpl implements IGameService {
     }
 
     @Override
-    public void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId, Long carryScore) {
+    public void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId, BigDecimal carryScore) {
         LoginPlayer player = PlayerSecurityUtils.getLoginPlayer();
         District entity = this.districtMapper.selectById(districtId);
         if (entity == null) {
@@ -3082,11 +3102,9 @@ public class GameServiceImpl implements IGameService {
     }
 
     private String resolveDistrictGameModeText(Integer districtId) {
-        if (districtId != null && isPaodekuaiDistrict(districtId)) {
-            String text = resolvePaodekuaiDistrictLabel(districtId);
-            if (StringUtils.isNotEmpty(text))
-                return text;
-        }
+        String text = resolveDistrictOptionLabel(districtId);
+        if (StringUtils.isNotEmpty(text))
+            return text;
         int baseScore = resolveDistrictBaseScore(districtId);
         int roundCount = resolveDistrictRoundCount(districtId);
         StringBuilder builder = new StringBuilder();
@@ -3100,9 +3118,33 @@ public class GameServiceImpl implements IGameService {
         return builder.length() == 0 ? "快速场" : builder.toString();
     }
 
-    private String resolvePaodekuaiDistrictLabel(Integer districtId) {
+    private String resolveDistrictOptionLabel(Integer districtId) {
         if (districtId == null)
             return null;
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B5_R1)) return "单局桃麻5";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B10_R1)) return "单局桃麻10";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B25_R1)) return "单局桃麻25";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B1_R8)) return "桃麻必中1";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B2_R8)) return "桃麻必中2";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B5_R8)) return "桃麻必中5";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B10_R8)) return "桃麻必中10";
+        if (districtId.equals(NiuMaConstants.DISTRICT_TAOJIANG_B20_R8)) return "桃麻必中20";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B25_R1)) return "单局红中1";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B5_R1)) return "单局红中5";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B10_R1)) return "单局红中10";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B1_R8)) return "8局红中1";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B2_R8)) return "8局红中2";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B5_R8)) return "8局红中5";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B10_R8)) return "8局红中10";
+        if (districtId.equals(NiuMaConstants.DISTRICT_HONGZHONG_B20_R8)) return "8局红中20";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B5_R1)) return "台桌5 · 单局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B10_R1)) return "台桌10 · 单局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B25_R1)) return "台桌25 · 单局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B1_R8)) return "台桌1 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B2_R8)) return "台桌2 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B5_R8)) return "台桌5 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B10_R8)) return "台桌10 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_CHANGSHA_B20_R8)) return "台桌20 · 8局";
         if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B1_R8)) return "3毛跑得快";
         if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B2_R8)) return "5毛跑得快";
         if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R8)) return "1块跑的快";
@@ -3111,6 +3153,14 @@ public class GameServiceImpl implements IGameService {
         if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B5_R1)) return "单局5块跑";
         if (districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B10_R1) ||
                 districtId.equals(NiuMaConstants.DISTRICT_PAO_DE_KUAI_B25_R1)) return "单局10块跑";
+        if (districtId.equals(NiuMaConstants.DISTRICT_WAIHUZI_B1_R8) ||
+                districtId.equals(NiuMaConstants.DISTRICT_QIANFEN_B1_R8)) return "底注1 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_WAIHUZI_B2_R8) ||
+                districtId.equals(NiuMaConstants.DISTRICT_QIANFEN_B2_R8)) return "底注2 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_WAIHUZI_B5_R8) ||
+                districtId.equals(NiuMaConstants.DISTRICT_QIANFEN_B5_R8)) return "底注5 · 8局";
+        if (districtId.equals(NiuMaConstants.DISTRICT_WAIHUZI_B10_R8) ||
+                districtId.equals(NiuMaConstants.DISTRICT_QIANFEN_B10_R8)) return "底注10 · 8局";
         return null;
     }
 
@@ -3186,7 +3236,7 @@ public class GameServiceImpl implements IGameService {
         if (action == NiuMaConstants.ACTION_CREATE_GAME) {
             try {
                 String json = decodeRuleConfigBase64(cmd.getBase64());
-                Long carryScore = resolveCarryScoreForCreate(cmd.getPlayerId(), cmd.getGameType(), json, cmd.getCarryScore());
+                BigDecimal carryScore = resolveCarryScoreForCreate(cmd.getPlayerId(), cmd.getGameType(), json, cmd.getCarryScore());
                 // 创建游戏
                 String venueId = createGame(cmd.getGameType(), cmd.getPlayerId(), cmd.getBase64());
                 // 响应进入新创建的场地
@@ -3207,7 +3257,7 @@ public class GameServiceImpl implements IGameService {
                 if (venue == null)
                     throw new NotFoundException(NiuMaCodeEnum.VENUE_NOT_EXIST);
                 assertPlayerCanEnterGame(playerId);
-                Long carryScore = resolveCarryScoreForVenue(playerId, venue, cmd.getCarryScore());
+                BigDecimal carryScore = resolveCarryScoreForVenue(playerId, venue, cmd.getCarryScore());
                 // 响应进入指定场地
                 responseEnterVenue(deferredResult, playerId, venueId, carryScore);
             } catch (HttpException ex) {
@@ -3809,11 +3859,12 @@ public class GameServiceImpl implements IGameService {
             return result;
         List<GameRecordDTO> dtos = new ArrayList<>();
         Map<String, String> numberMap = new HashMap<>();
+        Map<String, Integer> districtMap = new HashMap<>();
         Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss");
         for (GameRegionalRecord record : records) {
             GameRecordDTO tmp = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
-                    numberMap, playerMap);
+                    numberMap, districtMap, playerMap);
             if (record.getTime() != null)
                 tmp.setTime(record.getTime().format(formatter));
             dtos.add(tmp);
@@ -3880,11 +3931,12 @@ public class GameServiceImpl implements IGameService {
             return result;
         List<GameRecordDTO> dtos = new ArrayList<>();
         Map<String, String> numberMap = new HashMap<>();
+        Map<String, Integer> districtMap = new HashMap<>();
         Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss");
         for (GameRegionalRecord record : records) {
             GameRecordDTO tmp = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
-                    numberMap, playerMap);
+                    numberMap, districtMap, playerMap);
             if (record.getTime() != null)
                 tmp.setTime(record.getTime().format(formatter));
             dtos.add(tmp);
@@ -3920,14 +3972,17 @@ public class GameServiceImpl implements IGameService {
                                                  RegionalPlaybackGetter playbackGetter,
                                                  RegionalNumberGetter numberGetter) {
         Map<String, String> numberMap = new HashMap<>();
+        Map<String, Integer> districtMap = new HashMap<>();
         Map<String, PlayerBaseDTO> playerMap = new HashMap<>();
         GameRecordDTO recordDto = buildRegionalRecordDTO(record, gameType, gameName, playerCount, numberGetter,
-                numberMap, playerMap);
+                numberMap, districtMap, playerMap);
         GameRecordPlaybackDTO playbackDto = new GameRecordPlaybackDTO();
         playbackDto.setGameType(recordDto.getGameType());
         playbackDto.setGameName(recordDto.getGameName());
         playbackDto.setVenueId(recordDto.getVenueId());
         playbackDto.setNumber(recordDto.getNumber());
+        playbackDto.setDistrictId(recordDto.getDistrictId());
+        playbackDto.setGameModeText(recordDto.getGameModeText());
         playbackDto.setRoundNo(recordDto.getRoundNo());
         playbackDto.setBanker(recordDto.getBanker());
         playbackDto.setPlayers(recordDto.getPlayers());
@@ -3950,6 +4005,8 @@ public class GameServiceImpl implements IGameService {
             ajax.put("expireTime", playbackDto.getExpireTime());
             ajax.put("traceStartTime", playbackDto.getTraceStartTime());
             ajax.put("traceEndTime", playbackDto.getTraceEndTime());
+            ajax.put("districtId", playbackDto.getDistrictId());
+            ajax.put("gameModeText", playbackDto.getGameModeText());
             ajax.put("format", playbackDto.getFormat());
             ajax.put("codec", playbackDto.getCodec());
             ajax.put("msg", "牌局记录已超过追溯期");
@@ -3966,6 +4023,8 @@ public class GameServiceImpl implements IGameService {
         ajax.put("expireTime", playbackDto.getExpireTime());
         ajax.put("traceStartTime", playbackDto.getTraceStartTime());
         ajax.put("traceEndTime", playbackDto.getTraceEndTime());
+        ajax.put("districtId", playbackDto.getDistrictId());
+        ajax.put("gameModeText", playbackDto.getGameModeText());
         ajax.put("format", playbackDto.getFormat());
         ajax.put("codec", playbackDto.getCodec());
         if (!playbackDto.getHasReplay())
@@ -3980,6 +4039,7 @@ public class GameServiceImpl implements IGameService {
                                                  int playerCount,
                                                  RegionalNumberGetter numberGetter,
                                                  Map<String, String> numberMap,
+                                                 Map<String, Integer> districtMap,
                                                  Map<String, PlayerBaseDTO> playerMap) {
         GameRecordDTO dto = new GameRecordDTO();
         dto.setId(record.getId());
@@ -3992,6 +4052,10 @@ public class GameServiceImpl implements IGameService {
             numberMap.put(record.getVenueId(), number);
         }
         dto.setNumber(number);
+        Integer districtId = resolveRecordDistrictId(record.getVenueId(), number, districtMap);
+        dto.setDistrictId(districtId);
+        if (districtId != null && districtId > 0)
+            dto.setGameModeText(resolveDistrictGameModeText(districtId));
         dto.setRoundNo(record.getRoundNo());
         dto.setBanker(record.getBanker());
         dto.setPlayers(getRegionalRecordPlayers(record, playerCount, playerMap));
@@ -4000,6 +4064,32 @@ public class GameServiceImpl implements IGameService {
         dto.setScoreScale(normalizeRecordScoreScale(record.getScoreScale()));
         fillRecordRetention(dto, record.getTime());
         return dto;
+    }
+
+    private Integer resolveRecordDistrictId(String venueId, String number, Map<String, Integer> districtMap) {
+        Integer districtId = null;
+        if (StringUtils.isNotEmpty(venueId)) {
+            if (districtMap.containsKey(venueId)) {
+                districtId = districtMap.get(venueId);
+            } else {
+                districtId = this.venueMapper.getDistrictId(venueId);
+                districtMap.put(venueId, districtId);
+            }
+        }
+        if (districtId == null || districtId <= 0)
+            districtId = parseDistrictIdFromNumber(number);
+        return districtId != null && districtId > 0 ? districtId : null;
+    }
+
+    private Integer parseDistrictIdFromNumber(String number) {
+        if (StringUtils.isEmpty(number) || !number.startsWith("dist-"))
+            return null;
+        try {
+            int districtId = Integer.parseInt(number.substring("dist-".length()));
+            return districtId > 0 ? districtId : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private int normalizeRecordScoreScale(Integer scoreScale) {

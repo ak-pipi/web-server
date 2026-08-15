@@ -46,6 +46,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Random;
 
@@ -53,6 +55,9 @@ import java.util.Random;
 @Slf4j
 public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> implements IPlayerService {
     private static final String SUPER_ADMIN_PLAYER_ID = "888888";
+    private static final int PLAYER_ID_MIN = 100000;
+    private static final int PLAYER_ID_MAX = 999999;
+    private static final int MONEY_SCALE = 1;
 
     @Autowired
     private PlayerTokenService playerTokenService;
@@ -274,8 +279,8 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         }
         Capital capital = new Capital();
         capital.setPlayerId(playerId);
-        capital.setGold(0L);
-        capital.setDeposit(0L);
+        capital.setGold(money(0L));
+        capital.setDeposit(money(0L));
         capital.setDiamond(0L);
         capital.setVersion(1L);
         this.capitalService.save(capital);
@@ -378,12 +383,9 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
 
     private String generatePlayerId() {
         Random rand = new Random();
-        for (int i = 0; i < 64; i++) {
-            int length = 6 + rand.nextInt(3);
-            int min = (int) Math.pow(10, length - 1);
-            int max = (int) Math.pow(10, length) - 1;
-            String playerId = String.valueOf(min + rand.nextInt(max - min + 1));
-            if (this.baseMapper.selectById(playerId) == null) {
+        for (int i = 0; i < 256; i++) {
+            String playerId = String.valueOf(PLAYER_ID_MIN + rand.nextInt(PLAYER_ID_MAX - PLAYER_ID_MIN + 1));
+            if (!SUPER_ADMIN_PLAYER_ID.equals(playerId) && this.baseMapper.selectById(playerId) == null) {
                 return playerId;
             }
         }
@@ -421,8 +423,8 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         // 添加资产
         Capital capital = new Capital();
         capital.setPlayerId(entity.getId());
-        capital.setGold(0L);
-        capital.setDeposit(0L);
+        capital.setGold(money(0L));
+        capital.setDeposit(money(0L));
         capital.setDiamond(0L);
         capital.setVersion(1L);
         this.capitalService.save(capital);
@@ -741,12 +743,16 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
             // 添加资产
             capital = new Capital();
             capital.setPlayerId(entity.getId());
-            capital.setGold(0L);
-            capital.setDeposit(0L);
+            capital.setGold(money(0L));
+            capital.setDeposit(money(0L));
             capital.setDiamond(0L);
             capital.setVersion(1L);
             this.capitalService.save(capital);
         }
         return AjaxResult.successEx();
+    }
+
+    private BigDecimal money(long value) {
+        return BigDecimal.valueOf(value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 }

@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 /**
  * 玩家资产实体
  * @author wujian
@@ -22,12 +24,12 @@ public class Capital {
     /**
      * 金币数量，系统中0.1元人民币对应100金币
      */
-    private Long gold;
+    private BigDecimal gold;
 
     /**
      * 金币存款
      */
-    private Long deposit;
+    private BigDecimal deposit;
 
     /**
      * 钻石数量，系统中初始价为每25个金币购买1个钻石，即相当于0.025元人民币1枚钻石

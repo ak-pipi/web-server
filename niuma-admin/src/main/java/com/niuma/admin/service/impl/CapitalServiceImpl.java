@@ -27,6 +27,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +37,8 @@ import java.util.Map;
 @Service
 @Slf4j
 public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> implements ICapitalService {
+    private static final int MONEY_SCALE = 1;
+
     @Autowired
     private ExchangeMapper exchangeMapper;
 
@@ -85,11 +89,15 @@ public class CapitalServiceImpl extends ServiceImpl<CapitalMapper, Capital> impl
     private Capital initCapital(String playerId) {
         Capital entity = new Capital();
         entity.setPlayerId(playerId);
-        entity.setGold(0L);
-        entity.setDeposit(0L);
+        entity.setGold(money(0L));
+        entity.setDeposit(money(0L));
         entity.setDiamond(0L);
         this.baseMapper.insert(entity);
         return entity;
+    }
+
+    private BigDecimal money(long value) {
+        return BigDecimal.valueOf(value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
     @Override

@@ -47,6 +47,9 @@ public class AgencyStatsSupport {
     @Autowired
     private GameRegionalRecordMapper gameRegionalRecordMapper;
 
+    @Autowired
+    private MatchScoreSupport matchScoreSupport;
+
     public PageResult<AgencyStatsDTO> statsPage(AgencyStatsQueryDTO dto, String parentPlayerId, String parentNickname) {
         String statType = normalizeStatType(dto.getStatType());
         String keyword = StringUtils.trim(dto.getKeyword()).toLowerCase(Locale.ROOT);
@@ -73,6 +76,8 @@ public class AgencyStatsSupport {
         int from = Math.max(0, (pageNum - 1) * pageSize);
         int to = Math.min(total, from + pageSize);
         List<AgencyStatsDTO> records = from >= total ? Collections.emptyList() : new ArrayList<>(rows.subList(from, to));
+        fillMatchScores(records);
+        fillMatchScores(Collections.singletonList(selfStats));
 
         AgencyStatsPageResult result = new AgencyStatsPageResult();
         result.setCodeEnum(ResultCodeEnum.SUCCESS);
@@ -216,6 +221,7 @@ public class AgencyStatsSupport {
         dto.setParentNickname(parentNickname);
         dto.setScore(0L);
         dto.setScoreDelta(0L);
+        dto.setMatchScore(0L);
         dto.setRoundCount(0L);
         dto.setTotalConsume(0L);
         dto.setGiftReceived(0L);
@@ -319,6 +325,17 @@ public class AgencyStatsSupport {
             row.setScore(totals == null ? 0L : totals[0]);
             row.setScoreDelta(totals == null ? 0L : totals[0]);
             row.setRoundCount(totals == null ? 0L : totals[1]);
+        }
+    }
+
+    private void fillMatchScores(List<AgencyStatsDTO> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        for (AgencyStatsDTO row : rows) {
+            if (row != null) {
+                row.setMatchScore(matchScoreSupport.matchTotalScore(row.getPlayerId()));
+            }
         }
     }
 

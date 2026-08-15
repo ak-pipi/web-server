@@ -139,6 +139,18 @@ upload_no_cache() {
     --content-type "$content_type"
 }
 
+upload_no_cache_glob() {
+  local relative_pattern="$1" content_type="$2"
+  local local_path relative_path
+  while IFS= read -r -d '' local_path; do
+    relative_path="${local_path#${WEB_BUILD_DIR}/}"
+    aws_s3_retry aws s3 cp "$local_path" "s3://${WEB_BUCKET}/${relative_path}" \
+      --no-progress \
+      --cache-control 'no-store,no-cache,must-revalidate' \
+      --content-type "$content_type"
+  done < <(find "$WEB_BUILD_DIR" -path "${WEB_BUILD_DIR}/${relative_pattern}" -type f -print0)
+}
+
 # These files select the resource versions for a release. They must not be
 # held by the browser after a new build has been uploaded.
 upload_no_cache 'index.html' 'text/html; charset=utf-8'
@@ -147,6 +159,13 @@ upload_no_cache 'application.js' 'application/javascript; charset=utf-8'
 upload_no_cache 'settings.json' 'application/json; charset=utf-8'
 upload_no_cache 'src/settings.json' 'application/json; charset=utf-8'
 upload_no_cache 'src/import-map.json' 'application/json; charset=utf-8'
+upload_no_cache_glob 'index*.js' 'application/javascript; charset=utf-8'
+upload_no_cache_glob 'application*.js' 'application/javascript; charset=utf-8'
+upload_no_cache_glob 'src/chunks/bundle*.js' 'application/javascript; charset=utf-8'
+upload_no_cache_glob 'src/settings*.json' 'application/json; charset=utf-8'
+upload_no_cache_glob 'src/import-map*.json' 'application/json; charset=utf-8'
+upload_no_cache_glob 'assets/main/index*.js' 'application/javascript; charset=utf-8'
+upload_no_cache_glob 'assets/main/config*.json' 'application/json; charset=utf-8'
 
 printf '刷新 CloudFront 缓存…\n'
 INVALIDATION_ID="$(aws cloudfront create-invalidation \

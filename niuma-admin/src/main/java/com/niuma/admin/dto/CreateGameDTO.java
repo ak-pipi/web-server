@@ -3,6 +3,7 @@ package com.niuma.admin.dto;
 import lombok.Data;
 
 import javax.validation.constraints.NotNull;
+import java.math.BigDecimal;
 
 /**
  * 创建游戏请求体
@@ -23,5 +24,5 @@ public class CreateGameDTO {
     /**
      * 玩家创建并进入房间时携带积分；为空时使用房间最低携带积分。
      */
-    private Long carryScore;
+    private BigDecimal carryScore;
 }

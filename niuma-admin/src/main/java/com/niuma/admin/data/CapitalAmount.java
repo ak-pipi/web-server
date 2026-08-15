@@ -2,6 +2,8 @@ package com.niuma.admin.data;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 /**
  * 玩家资产数量
  * @author wujian
@@ -13,12 +15,12 @@ public class CapitalAmount {
     /**
      * 金币数量
      */
-    private Long gold;
+    private BigDecimal gold;
 
     /**
      * 存款余额
      */
-    private Long deposit;
+    private BigDecimal deposit;
 
     /**
      * 钻石数量

@@ -7,6 +7,8 @@ import com.niuma.admin.entity.Capital;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+
 @Repository
 public interface CapitalMapper extends BaseMapper<Capital> {
     /**
@@ -14,7 +16,7 @@ public interface CapitalMapper extends BaseMapper<Capital> {
      * @param id 玩家id
      * @return 金币数量
      */
-    Long getGold(@Param("id") String id);
+    BigDecimal getGold(@Param("id") String id);
 
     /**
      * 查询玩家钻石数量
@@ -40,8 +42,8 @@ public interface CapitalMapper extends BaseMapper<Capital> {
      * @return 更新数据库表行数
      */
     Integer setCapital(@Param("id") String id,
-                       @Param("gold") Long gold,
-                       @Param("deposit") Long deposit,
+                       @Param("gold") BigDecimal gold,
+                       @Param("deposit") BigDecimal deposit,
                        @Param("diamond") Long diamond,
                        @Param("version") Long version);
 

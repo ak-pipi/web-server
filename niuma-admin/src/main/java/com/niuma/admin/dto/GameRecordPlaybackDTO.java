@@ -13,6 +13,8 @@ public class GameRecordPlaybackDTO {
     private String gameName;
     private String venueId;
     private String number;
+    private Integer districtId;
+    private String gameModeText;
     private Integer roundNo;
     private Integer banker;
     private List<PlayerBaseDTO> players;

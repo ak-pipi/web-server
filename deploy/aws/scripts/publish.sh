@@ -139,6 +139,10 @@ SQL_MIGRATIONS+=("${SQL_DIR}/v28_rename_regional_district_display_names.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v29_fix_taojiang_district_labels.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v30_paodekuai_rule_options.sql")
 SQL_MIGRATIONS+=("${SQL_DIR}/v31_paodekuai_score_scale.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v32_fix_regional_round_count_and_record_labels.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v33_paodekuai_min_carry_room_settlement.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v34_paodekuai_score_scale_all_stakes.sql")
+SQL_MIGRATIONS+=("${SQL_DIR}/v35_decimal_gold_and_cash_pledge.sql")
 
 validate_sql_migration_manifest() {
   local migration migration_name listed listed_path

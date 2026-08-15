@@ -27,6 +27,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
@@ -41,6 +43,7 @@ import java.util.Set;
 @Service
 @Slf4j
 public class SafeBoxServiceImpl implements ISafeBoxService {
+    private static final int MONEY_SCALE = 1;
 
     @Autowired
     private IWalletService walletService;
@@ -200,8 +203,8 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
             if (capital == null) {
                 capital = new Capital();
                 capital.setPlayerId(playerId);
-                capital.setGold(0L);
-                capital.setDeposit(0L);
+                capital.setGold(money(0L));
+                capital.setDeposit(money(0L));
                 capital.setDiamond(0L);
                 capitalMapper.insert(capital);
             }
@@ -213,6 +216,10 @@ public class SafeBoxServiceImpl implements ISafeBoxService {
 
         log.info("[保险箱] 玩家 {} 设置/修改了银行密码", playerId);
         return AjaxResult.successEx();
+    }
+
+    private BigDecimal money(long value) {
+        return BigDecimal.valueOf(value).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
     // ==================== 忘记密码申诉 ====================

@@ -304,164 +304,204 @@
     </sql>
 
     <select id="sumAgencyGameStatsByPlayerIds" resultType="com.niuma.admin.dto.AgencyGameStatDTO">
-        select `records`.`playerId` as `playerId`,
-               ifnull(sum(`records`.`scoreDelta`), 0) as `totalScoreDelta`,
+        select `rooms`.`playerId` as `playerId`,
+               ifnull(sum(`rooms`.`roomScoreDelta`), 0) as `totalScoreDelta`,
                count(*) as `roundCount`
         from (
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`win_gold0`, 0) as `scoreDelta`
+            select `records`.`playerId`, `records`.`venueId`,
+                   sum(`records`.`scoreDelta`) as `roomScoreDelta`,
+                   max(`records`.`recordTime`) as `roomEndTime`
+            from (
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`win_gold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`win_gold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`win_gold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`win_gold2`, 0) as `scoreDelta`
+            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`win_gold2`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id2` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`win_gold3`, 0) as `scoreDelta`
+            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`win_gold3`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id3` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold0`, 0) as `scoreDelta`
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_taojiang_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_taojiang_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold2`, 0) as `scoreDelta`
+            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold2`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_taojiang_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id2` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold3`, 0) as `scoreDelta`
+            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold3`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_taojiang_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id3` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold0`, 0) as `scoreDelta`
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_hongzhong_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_hongzhong_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold2`, 0) as `scoreDelta`
+            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold2`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_hongzhong_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id2` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold3`, 0) as `scoreDelta`
+            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold3`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_hongzhong_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id3` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold0`, 0) as `scoreDelta`
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_paodekuai_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_paodekuai_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold0`, 0) as `scoreDelta`
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_changsha_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_changsha_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold2`, 0) as `scoreDelta`
+            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold2`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_changsha_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id2` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold3`, 0) as `scoreDelta`
+            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold3`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_changsha_mahjong_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id3` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold0`, 0) as `scoreDelta`
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yiyang_waihuzi_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yiyang_waihuzi_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold2`, 0) as `scoreDelta`
+            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold2`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yiyang_waihuzi_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id2` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold0`, 0) as `scoreDelta`
+            select convert(`player_id0` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold0`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yuanjiang_qianfen_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id0` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold1`, 0) as `scoreDelta`
+            select convert(`player_id1` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold1`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yuanjiang_qianfen_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id1` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold2`, 0) as `scoreDelta`
+            select convert(`player_id2` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold2`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yuanjiang_qianfen_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id2` in <include refid="agency_stats_player_ids"/>
             union all
-            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`wingold3`, 0) as `scoreDelta`
+            select convert(`player_id3` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`wingold3`, 0) as `scoreDelta`, `time` as `recordTime`
             from `game_yuanjiang_qianfen_record`
-            where `time` &gt;= #{startTime} and `time` &lt; #{endTime}
+            where `time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `time` &lt; #{endTime}
               and `player_id3` in <include refid="agency_stats_player_ids"/>
 
             union all
-            select convert(`t1`.`player_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, ifnull(`t1`.`win_gold`, 0) as `scoreDelta`
+            select convert(`t1`.`player_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `playerId`, convert(`t2`.`venue_id` using utf8mb4) collate utf8mb4_0900_ai_ci as `venueId`, ifnull(`t1`.`win_gold`, 0) as `scoreDelta`, `t2`.`time` as `recordTime`
             from `game_lackey_round_player` `t1`
             inner join `game_lackey_round` `t2` on `t1`.`round_id` = `t2`.`id`
-            where `t2`.`time` &gt;= #{startTime} and `t2`.`time` &lt; #{endTime}
+            where `t2`.`time` &gt;= DATE_SUB(#{startTime}, INTERVAL 1 DAY)
+              and `t2`.`time` &lt; #{endTime}
               and `t1`.`player_id` in <include refid="agency_stats_player_ids"/>
-        ) `records`
-        group by `records`.`playerId`
+            ) `records`
+            group by `records`.`playerId`, `records`.`venueId`
+        ) `rooms`
+        where `rooms`.`roomEndTime` &gt;= #{startTime}
+          and `rooms`.`roomEndTime` &lt; #{endTime}
+        group by `rooms`.`playerId`
     </select>
 
     <select id="summarizePlayerGameRecords" resultType="java.util.HashMap">
-        select `gameType`, `gameName`,
+        select `rooms`.`gameType`, `rooms`.`gameName`,
                count(*) as `totalRounds`,
-               sum(case when `delta` &gt; 0 then 1 else 0 end) as `winCount`,
-               sum(case when `delta` &lt; 0 then 1 else 0 end) as `loseCount`,
-               sum(`delta`) as `totalScoreDelta`,
-               sum(case when `time` &gt;= #{todayStart} then 1 else 0 end) as `todayRounds`,
-               max(`time`) as `latestTime`
+               sum(case when `rooms`.`roomDelta` &gt; 0 then 1 else 0 end) as `winCount`,
+               sum(case when `rooms`.`roomDelta` &lt; 0 then 1 else 0 end) as `loseCount`,
+               sum(`rooms`.`roomDelta`) as `totalScoreDelta`,
+               sum(case when `rooms`.`roomEndTime` &gt;= #{todayStart} then 1 else 0 end) as `todayRounds`,
+               max(`rooms`.`roomEndTime`) as `latestTime`
         from (
-            <include refid="player_game_record_union"/>
-        ) records
-        group by `gameType`, `gameName`
-        order by `totalRounds` desc, `gameType` asc
+            select `records`.`gameType`, `records`.`gameName`, `records`.`venueId`,
+                   sum(`records`.`delta`) as `roomDelta`,
+                   max(`records`.`time`) as `roomEndTime`
+            from (
+                <include refid="player_game_record_union"/>
+            ) records
+            group by `records`.`gameType`, `records`.`gameName`, `records`.`venueId`
+        ) rooms
+        group by `rooms`.`gameType`, `rooms`.`gameName`
+        order by `totalRounds` desc, `rooms`.`gameType` asc
     </select>
 
     <select id="getRecentPlayerGameRecords" resultType="java.util.HashMap">

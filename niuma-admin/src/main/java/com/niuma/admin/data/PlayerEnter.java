@@ -2,6 +2,8 @@ package com.niuma.admin.data;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 /**
  * 玩家进入场地数据
  * @author wujian
@@ -17,5 +19,5 @@ public class PlayerEnter {
     private String authorizedVenue;
 
     // 本次授权进入房间携带积分
-    private Long carryScore;
+    private BigDecimal carryScore;
 }

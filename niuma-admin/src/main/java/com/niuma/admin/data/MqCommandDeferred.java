@@ -4,6 +4,8 @@ import com.niuma.common.core.domain.AjaxResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.math.BigDecimal;
+
 /**
  * 异步命令
  * @author wujian
@@ -55,7 +57,7 @@ public class MqCommandDeferred {
     /**
      * 本次进入房间携带积分
      */
-    private Long carryScore;
+    private BigDecimal carryScore;
 
     /**
      * 异步响应结果
@@ -115,11 +117,11 @@ public class MqCommandDeferred {
         return this.base64;
     }
 
-    public void setCarryScore(Long carryScore) {
+    public void setCarryScore(BigDecimal carryScore) {
         this.carryScore = carryScore;
     }
 
-    public Long getCarryScore() {
+    public BigDecimal getCarryScore() {
         return this.carryScore;
     }
 

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
@@ -85,8 +86,8 @@ public class WalletSyncPublisher {
         sync.setBizId(bizId);
         sync.setWalletLedgerId(walletLedgerId);
         if (capital != null) {
-            sync.setGold(capital.getGold() != null ? capital.getGold() : 0L);
-            sync.setDeposit(capital.getDeposit() != null ? capital.getDeposit() : 0L);
+            sync.setGold(capital.getGold() != null ? capital.getGold() : BigDecimal.ZERO);
+            sync.setDeposit(capital.getDeposit() != null ? capital.getDeposit() : BigDecimal.ZERO);
             sync.setDiamond(capital.getDiamond() != null ? capital.getDiamond() : 0L);
         }
 

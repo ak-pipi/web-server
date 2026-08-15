@@ -23,4 +23,5 @@ public class AgencyMatchPlayerDTO {
     private Integer commissionRateBp;
     private Long feeAmount;
     private Long commissionAmount;
+    private Boolean self;
 }

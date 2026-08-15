@@ -8,6 +8,8 @@ import com.niuma.common.page.PageResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.math.BigDecimal;
+
 /**
  * 游戏相关服务接口
  * @author wujian
@@ -44,7 +46,7 @@ public interface IGameService {
      * 进入区域
      * @param districtId 区域id
      */
-    void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId, Long carryScore);
+    void enterDistrict(DeferredResult<ResponseEntity<AjaxResult>> result, Integer districtId, BigDecimal carryScore);
 
     /**
      * 查询区域内当前玩家数量

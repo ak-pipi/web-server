@@ -77,6 +77,13 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
     private static final String MEMBER_TYPE_PLAYER = "player";
     private static final String MATCH_VIEW_SHARE = "share";
     private static final String MATCH_VIEW_SHUFFLE_SHARE = "shuffleShare";
+    private static final String MATCH_DETAIL_ALL = "all";
+    private static final String MATCH_DETAIL_WASH = "wash";
+    private static final String MATCH_DETAIL_TRANSFER = "transfer";
+    private static final String MATCH_DETAIL_GIFT = "gift";
+    private static final String MATCH_DETAIL_WINLOSE = "winlose";
+    private static final String MATCH_BIZ_TYPE_SHUFFLE_SHARE = "shuffle_share";
+    private static final String MATCH_ADJUST_BIZ_PREFIX = "COCOS_MATCH_";
     private static final ZoneId INCOME_BOX_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter INCOME_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -112,6 +119,9 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
 
     @Autowired
     private AgencyStatsSupport agencyStatsSupport;
+
+    @Autowired
+    private MatchScoreSupport matchScoreSupport;
 
     @Override
     public AjaxResult getAgency() {
@@ -593,20 +603,63 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
             return new PageResult<>(Collections.emptyList(), dto.getPageNum(), 0);
         }
 
+        LocalDate date = parseDate(dto.getDate());
+        String changeType = normalizeMatchDetailType(dto.getChangeType());
+        List<AgencyMatchLedgerDTO> rows = new ArrayList<>();
+        rows.addAll(queryMatchWalletLedgerRows(playerIds, date, changeType));
+        rows.addAll(queryMatchShuffleShareRows(playerIds, date, changeType));
+        rows.sort((left, right) -> {
+            LocalDateTime leftTime = left.getTime();
+            LocalDateTime rightTime = right.getTime();
+            if (leftTime == null && rightTime == null) {
+                return 0;
+            }
+            if (leftTime == null) return 1;
+            if (rightTime == null) return -1;
+            return rightTime.compareTo(leftTime);
+        });
+        return pageList(rows, dto);
+    }
+
+    private List<AgencyMatchLedgerDTO> queryMatchWalletLedgerRows(List<String> playerIds, LocalDate date, String changeType) {
         LambdaQueryWrapper<WalletLedger> wrapper = Wrappers.lambdaQuery(WalletLedger.class)
-                .eq(WalletLedger::getWalletType, WalletType.GOLD.getCode())
+                .in(WalletLedger::getWalletType, Arrays.asList(WalletType.GOLD.getCode(), WalletType.DEPOSIT.getCode()))
+                .in(WalletLedger::getBizType, Arrays.asList(
+                        LedgerBizType.GAME_SETTLE.getCode(),
+                        LedgerBizType.ADMIN_ADJUST.getCode(),
+                        LedgerBizType.TRANSFER_IN.getCode(),
+                        LedgerBizType.TRANSFER_OUT.getCode()))
                 .in(WalletLedger::getUserId, playerIds);
-        applyLedgerDate(wrapper, parseDate(dto.getDate()));
-        applyLedgerChangeFilter(wrapper, dto.getChangeType());
-        Integer total = this.walletLedgerMapper.selectCount(wrapper);
-        wrapper.orderByDesc(WalletLedger::getId)
-                .last(limitClause(dto.getPageNum(), dto.getPageSize()));
+        applyLedgerDate(wrapper, date);
+        wrapper.orderByDesc(WalletLedger::getId);
         List<WalletLedger> ledgers = this.walletLedgerMapper.selectList(wrapper);
         List<AgencyMatchLedgerDTO> records = new ArrayList<>();
         for (WalletLedger ledger : ledgers) {
-            records.add(toMatchLedgerDTO(ledger));
+            if (includeWalletLedgerInMatchDetail(ledger, changeType)) {
+                records.add(toMatchLedgerDTO(ledger));
+            }
         }
-        return new PageResult<>(records, dto.getPageNum(), total == null ? 0 : total);
+        return records;
+    }
+
+    private List<AgencyMatchLedgerDTO> queryMatchShuffleShareRows(List<String> playerIds, LocalDate date, String changeType) {
+        if (!MATCH_DETAIL_ALL.equals(changeType) && !MATCH_DETAIL_WASH.equals(changeType)) {
+            return Collections.emptyList();
+        }
+        LambdaQueryWrapper<AgencyCommissionLedger> wrapper = Wrappers.lambdaQuery(AgencyCommissionLedger.class)
+                .in(AgencyCommissionLedger::getAgentPlayerId, playerIds)
+                .eq(AgencyCommissionLedger::getFeeType, RoomFeeLedger.FEE_TYPE_SHUFFLE)
+                .ne(AgencyCommissionLedger::getStatus, AgencyCommissionLedger.STATUS_REVERSED)
+                .gt(AgencyCommissionLedger::getCommissionAmount, 0L)
+                .ge(AgencyCommissionLedger::getCreateTime, date.atStartOfDay())
+                .lt(AgencyCommissionLedger::getCreateTime, date.plusDays(1).atStartOfDay())
+                .orderByDesc(AgencyCommissionLedger::getId);
+        List<AgencyCommissionLedger> ledgers = this.agencyCommissionLedgerMapper.selectList(wrapper);
+        List<AgencyMatchLedgerDTO> rows = new ArrayList<>();
+        for (AgencyCommissionLedger ledger : ledgers) {
+            rows.add(toMatchShuffleShareLedgerDTO(ledger));
+        }
+        return rows;
     }
 
     @Override
@@ -653,16 +706,20 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
         Map<String, Long> giftScores = new HashMap<>();
         if (!playerIds.isEmpty()) {
             LambdaQueryWrapper<WalletLedger> wrapper = Wrappers.lambdaQuery(WalletLedger.class)
-                    .eq(WalletLedger::getWalletType, WalletType.GOLD.getCode())
-                    .eq(WalletLedger::getBizType, LedgerBizType.ADMIN_ADJUST.getCode())
-                    .gt(WalletLedger::getChangeAmount, 0)
+                    .in(WalletLedger::getWalletType, Arrays.asList(WalletType.GOLD.getCode(), WalletType.DEPOSIT.getCode()))
+                    .in(WalletLedger::getBizType, Arrays.asList(
+                            LedgerBizType.ADMIN_ADJUST.getCode(),
+                            LedgerBizType.TRANSFER_OUT.getCode()))
                     .in(WalletLedger::getUserId, playerIds);
             applyLedgerDate(wrapper, parseDate(dto.getDate()));
             List<WalletLedger> ledgers = this.walletLedgerMapper.selectList(wrapper);
             for (WalletLedger ledger : ledgers) {
+                if (!MATCH_DETAIL_GIFT.equals(matchLedgerCategory(ledger))) {
+                    continue;
+                }
                 giftTimes.put(ledger.getUserId(), giftTimes.getOrDefault(ledger.getUserId(), 0L) + 1);
                 giftScores.put(ledger.getUserId(), giftScores.getOrDefault(ledger.getUserId(), 0L)
-                        + Math.max(0L, ledger.getChangeAmount() == null ? 0L : ledger.getChangeAmount()));
+                        + safeLong(ledger.getChangeAmount()));
             }
         }
 
@@ -815,8 +872,7 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
 
     private List<AgencyMatchPlayerDTO> queryMatchPlayers(Agency currentAgency, AgencyMatchQueryDTO dto) {
         String keyword = StringUtils.trim(dto.getKeyword()).toLowerCase(Locale.ROOT);
-        String viewType = StringUtils.trim(dto.getViewType());
-        boolean includeSelf = "detail".equals(viewType) || "gift".equals(viewType);
+        boolean includeSelf = true;
         String parentPlayerId = currentAgency.getPlayerId();
 
         List<Agency> directAgencies = this.baseMapper.selectList(
@@ -850,6 +906,7 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
             if (selfPlayer != null) {
                 AgencyMatchPlayerDTO row = toMatchPlayerDTO(selfPlayer, currentAgency,
                         StringUtils.nvl(currentAgency.getSuperiorId(), Agency.ROOT_PLAYER_ID));
+                row.setSelf(true);
                 if (matchesMatchKeyword(row, keyword)) {
                     rows.add(row);
                 }
@@ -874,7 +931,8 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
                 rows.add(row);
             }
         }
-        rows.sort(Comparator.comparing(AgencyMatchPlayerDTO::getRole, Comparator.nullsLast(String::compareTo))
+        rows.sort(Comparator.comparing((AgencyMatchPlayerDTO row) -> Boolean.TRUE.equals(row.getSelf()) ? 0 : 1)
+                .thenComparing(AgencyMatchPlayerDTO::getRole, Comparator.nullsLast(String::compareTo))
                 .thenComparing(AgencyMatchPlayerDTO::getPlayerId, Comparator.nullsLast(String::compareTo)));
         return rows;
     }
@@ -978,8 +1036,9 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
         dto.setJuniorCount(agency != null ? safeInt(agency.getJuniorCount()) : 0);
         dto.setParentPlayerId(parentPlayerId);
         dto.setParentNickname(nickname(parentPlayerId));
-        dto.setScore(walletService.getBalance(player.getId(), WalletType.GOLD.getCode()));
+        dto.setScore(matchTotalScore(player.getId()));
         dto.setCommissionRateBp(agency != null ? agency.getCommissionRateBp() : 0);
+        dto.setSelf(false);
         return dto;
     }
 
@@ -997,23 +1056,69 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
                 .lt(WalletLedger::getCreateTime, date.plusDays(1).atStartOfDay());
     }
 
-    private void applyLedgerChangeFilter(LambdaQueryWrapper<WalletLedger> wrapper, String rawType) {
+    private String normalizeMatchDetailType(String rawType) {
         String type = StringUtils.trim(rawType);
-        if ("wash".equals(type)) {
-            wrapper.eq(WalletLedger::getBizType, LedgerBizType.SHUFFLE_FEE.getCode());
-        } else if ("transfer".equals(type)) {
-            wrapper.in(WalletLedger::getBizType, Arrays.asList(
-                    LedgerBizType.TRANSFER_IN.getCode(),
-                    LedgerBizType.TRANSFER_OUT.getCode()));
-        } else if ("gift".equals(type) || "admin_up".equals(type)) {
-            wrapper.eq(WalletLedger::getBizType, LedgerBizType.ADMIN_ADJUST.getCode())
-                    .gt(WalletLedger::getChangeAmount, 0);
-        } else if ("admin_down".equals(type)) {
-            wrapper.eq(WalletLedger::getBizType, LedgerBizType.ADMIN_ADJUST.getCode())
-                    .lt(WalletLedger::getChangeAmount, 0);
-        } else if ("winlose".equals(type)) {
-            wrapper.eq(WalletLedger::getBizType, LedgerBizType.GAME_SETTLE.getCode());
+        if (MATCH_DETAIL_WASH.equals(type)
+                || MATCH_DETAIL_TRANSFER.equals(type)
+                || MATCH_DETAIL_GIFT.equals(type)
+                || MATCH_DETAIL_WINLOSE.equals(type)) {
+            return type;
         }
+        return MATCH_DETAIL_ALL;
+    }
+
+    private boolean includeWalletLedgerInMatchDetail(WalletLedger ledger, String changeType) {
+        String category = matchLedgerCategory(ledger);
+        if (StringUtils.isEmpty(category)) {
+            return false;
+        }
+        return MATCH_DETAIL_ALL.equals(changeType) || changeType.equals(category);
+    }
+
+    private String matchLedgerCategory(WalletLedger ledger) {
+        if (ledger == null) {
+            return null;
+        }
+        String bizType = ledger.getBizType();
+        if (LedgerBizType.GAME_SETTLE.getCode().equals(bizType)) {
+            return MATCH_DETAIL_WINLOSE;
+        }
+        if (LedgerBizType.TRANSFER_IN.getCode().equals(bizType)) {
+            return MATCH_DETAIL_TRANSFER;
+        }
+        if (LedgerBizType.TRANSFER_OUT.getCode().equals(bizType)) {
+            return MATCH_DETAIL_GIFT;
+        }
+        if (LedgerBizType.ADMIN_ADJUST.getCode().equals(bizType) && isCocosMatchAdjustLedger(ledger)) {
+            String remark = StringUtils.trim(ledger.getRemark());
+            if (remark.contains("操作人:")) {
+                return MATCH_DETAIL_TRANSFER;
+            }
+            if (remark.contains("对方:")) {
+                return MATCH_DETAIL_GIFT;
+            }
+        }
+        return null;
+    }
+
+    private boolean isCocosMatchAdjustLedger(WalletLedger ledger) {
+        String bizId = StringUtils.trim(ledger.getBizId());
+        String remark = StringUtils.trim(ledger.getRemark());
+        return bizId.startsWith(MATCH_ADJUST_BIZ_PREFIX)
+                || remark.startsWith("比赛分上分")
+                || remark.startsWith("比赛分下分");
+    }
+
+    private long matchTotalScore(String playerId) {
+        return matchScoreSupport.matchTotalScore(playerId);
+    }
+
+    private long matchIncomeBoxScore(String playerId) {
+        return matchScoreSupport.matchIncomeBoxScore(playerId);
+    }
+
+    private long matchBalanceAfter(WalletLedger ledger) {
+        return matchScoreSupport.matchBalanceAfter(ledger);
     }
 
     private AgencyMatchLedgerDTO toMatchLedgerDTO(WalletLedger ledger) {
@@ -1026,13 +1131,35 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
         dto.setAccount(player != null ? player.getName() : null);
         dto.setParentPlayerId(parentId);
         dto.setParentNickname(nickname(parentId));
-        dto.setScore(walletService.getBalance(ledger.getUserId(), WalletType.GOLD.getCode()));
+        dto.setScore(matchTotalScore(ledger.getUserId()));
         dto.setMatchScore(ledger.getChangeAmount());
-        dto.setBalanceAfter(ledger.getBalanceAfter());
+        dto.setBalanceAfter(matchBalanceAfter(ledger));
         dto.setChangeType(safeLong(ledger.getChangeAmount()) >= 0 ? "增加" : "减少");
         dto.setBizType(ledger.getBizType());
-        dto.setBizTypeText(bizTypeText(ledger.getBizType()));
+        dto.setBizTypeText(matchLedgerBizTypeText(ledger));
         dto.setGameName(gameNameText(ledger));
+        dto.setRemark(ledger.getRemark());
+        dto.setTime(ledger.getCreateTime());
+        return dto;
+    }
+
+    private AgencyMatchLedgerDTO toMatchShuffleShareLedgerDTO(AgencyCommissionLedger ledger) {
+        Player player = this.playerMapper.selectById(ledger.getAgentPlayerId());
+        Agency agency = findAgency(ledger.getAgentPlayerId());
+        String parentId = agency != null ? agency.getSuperiorId() : (player != null ? player.getAgencyId() : "");
+        AgencyMatchLedgerDTO dto = new AgencyMatchLedgerDTO();
+        dto.setPlayerId(ledger.getAgentPlayerId());
+        dto.setNickname(player != null ? player.getNickname() : nickname(ledger.getAgentPlayerId()));
+        dto.setAccount(player != null ? player.getName() : null);
+        dto.setParentPlayerId(parentId);
+        dto.setParentNickname(nickname(parentId));
+        dto.setScore(matchTotalScore(ledger.getAgentPlayerId()));
+        dto.setMatchScore(safeLong(ledger.getCommissionAmount()));
+        dto.setBalanceAfter(matchTotalScore(ledger.getAgentPlayerId()));
+        dto.setChangeType("增加");
+        dto.setBizType(MATCH_BIZ_TYPE_SHUFFLE_SHARE);
+        dto.setBizTypeText("洗牌分分成");
+        dto.setGameName(gameNameText(resolveIncomeGameType(ledger)));
         dto.setRemark(ledger.getRemark());
         dto.setTime(ledger.getCreateTime());
         return dto;
@@ -1574,6 +1701,20 @@ public class AgencyServiceImpl extends ServiceImpl<AgencyMapper, Agency> impleme
             return "洗牌分";
         }
         return StringUtils.nvl(value, "-");
+    }
+
+    private String matchLedgerBizTypeText(WalletLedger ledger) {
+        String category = matchLedgerCategory(ledger);
+        if (MATCH_DETAIL_WINLOSE.equals(category)) {
+            return "输赢分";
+        }
+        if (MATCH_DETAIL_TRANSFER.equals(category)) {
+            return "转移分";
+        }
+        if (MATCH_DETAIL_GIFT.equals(category)) {
+            return "赠送分";
+        }
+        return bizTypeText(ledger.getBizType());
     }
 
     private String gameNameText(WalletLedger ledger) {

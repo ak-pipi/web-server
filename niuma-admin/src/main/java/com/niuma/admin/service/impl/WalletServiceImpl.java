@@ -25,6 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
@@ -40,6 +42,7 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLedger> implements IWalletService {
+    private static final int MONEY_SCALE = 1;
 
     @Autowired
     private CapitalMapper capitalMapper;
@@ -66,14 +69,14 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
         Capital capital = capitalMapper.selectById(playerId);
         AjaxResult result = AjaxResult.successEx();
         if (capital != null) {
-            result.put("gold", capital.getGold() != null ? capital.getGold() : 0L);
-            result.put("deposit", capital.getDeposit() != null ? capital.getDeposit() : 0L);
+            result.put("gold", money(capital.getGold()));
+            result.put("deposit", money(capital.getDeposit()));
             result.put("diamond", capital.getDiamond() != null ? capital.getDiamond() : 0L);
             result.put("room_card", 0L);  // TODO: 房卡表待实现
             result.put("points", 0L);      // TODO: 积分表待实现
         } else {
-            result.put("gold", 0L);
-            result.put("deposit", 0L);
+            result.put("gold", money(0L));
+            result.put("deposit", money(0L));
             result.put("diamond", 0L);
             result.put("room_card", 0L);
             result.put("points", 0L);
@@ -92,9 +95,9 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
         }
         switch (WalletType.fromCode(walletType)) {
             case GOLD:
-                return capital.getGold() != null ? capital.getGold() : 0L;
+                return money(capital.getGold()).longValue();
             case DEPOSIT:
-                return capital.getDeposit() != null ? capital.getDeposit() : 0L;
+                return money(capital.getDeposit()).longValue();
             case DIAMOND:
                 return capital.getDiamond() != null ? capital.getDiamond() : 0L;
             case ROOM_CARD:
@@ -150,17 +153,18 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
         if (capital == null) {
             capital = initCapital(playerId);
         }
-        long delta = isIncrease ? amount : -amount;
+        BigDecimal delta = money(isIncrease ? amount : -amount);
+        long integralDelta = isIncrease ? amount : -amount;
 
         switch (WalletType.fromCode(walletType)) {
             case GOLD:
-                capital.setGold((capital.getGold() != null ? capital.getGold() : 0) + delta);
+                capital.setGold(money(capital.getGold()).add(delta).setScale(MONEY_SCALE, RoundingMode.HALF_UP));
                 break;
             case DEPOSIT:
-                capital.setDeposit((capital.getDeposit() != null ? capital.getDeposit() : 0) + delta);
+                capital.setDeposit(money(capital.getDeposit()).add(delta).setScale(MONEY_SCALE, RoundingMode.HALF_UP));
                 break;
             case DIAMOND:
-                capital.setDiamond((capital.getDiamond() != null ? capital.getDiamond() : 0) + delta);
+                capital.setDiamond((capital.getDiamond() != null ? capital.getDiamond() : 0) + integralDelta);
                 break;
             default:
                 log.info("[钱包] 钱包类型 {} 暂不走capital表, 跳过更新", walletType);
@@ -175,8 +179,8 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
     private Capital initCapital(String playerId) {
         Capital entity = new Capital();
         entity.setPlayerId(playerId);
-        entity.setGold(Agency.ROOT_PLAYER_ID.equals(playerId) ? 500000000L : 0L);
-        entity.setDeposit(0L);
+        entity.setGold(money(Agency.ROOT_PLAYER_ID.equals(playerId) ? 500000000L : 0L));
+        entity.setDeposit(money(0L));
         entity.setDiamond(0L);
         entity.setVersion(0L);
         try {
@@ -189,6 +193,16 @@ public class WalletServiceImpl extends ServiceImpl<WalletLedgerMapper, WalletLed
             throw ex;
         }
         return entity;
+    }
+
+    private BigDecimal money(BigDecimal amount) {
+        if (amount == null)
+            return BigDecimal.ZERO.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        return amount.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal money(long amount) {
+        return BigDecimal.valueOf(amount).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
     }
 
     /**

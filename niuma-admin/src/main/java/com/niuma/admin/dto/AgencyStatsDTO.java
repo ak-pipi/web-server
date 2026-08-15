@@ -28,6 +28,9 @@ public class AgencyStatsDTO {
     /** 统计时间内比赛输赢分。 */
     private Long scoreDelta;
 
+    /** 当前比赛分，口径同比赛分管理列表。 */
+    private Long matchScore;
+
     /** 统计时间内参与对局场次。 */
     private Long roundCount;
 

@@ -22,7 +22,7 @@ public class CreateGameDTO {
     private String base64;
 
     /**
-     * 玩家创建并进入房间时携带积分；为空时使用房间最低携带积分。
+     * 兼容旧客户端字段；服务端始终以玩家当前背包积分作为本次入房积分。
      */
     private BigDecimal carryScore;
 }

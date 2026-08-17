@@ -55,7 +55,7 @@ public class MqCommandDeferred {
     private String base64;
 
     /**
-     * 本次进入房间携带积分
+     * 兼容旧客户端字段；实际入房积分由服务端读取当前背包积分决定。
      */
     private BigDecimal carryScore;
 

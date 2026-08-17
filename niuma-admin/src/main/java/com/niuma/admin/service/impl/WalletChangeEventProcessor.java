@@ -65,11 +65,9 @@ public class WalletChangeEventProcessor {
         String remark = buildRemark(event);
 
         if (EVENT_GAME_WIN.equals(eventType)) {
-            walletService.increase(event.getUserId(), walletType, amount,
-                    LedgerBizType.GAME_SETTLE.getCode(), refNo, remark);
+            recordRoomScoreLedger(event, walletType, amount, refNo, remark, true);
         } else if (EVENT_GAME_LOSE.equals(eventType)) {
-            walletService.decrease(event.getUserId(), walletType, amount,
-                    LedgerBizType.GAME_SETTLE.getCode(), refNo, remark);
+            recordRoomScoreLedger(event, walletType, amount, refNo, remark, false);
         } else if (EVENT_ROOM_FEE.equals(eventType)) {
             walletService.decrease(event.getUserId(), walletType, amount,
                     LedgerBizType.ROOM_FEE.getCode(), refNo, remark);
@@ -85,6 +83,21 @@ public class WalletChangeEventProcessor {
         } else {
             throw new BadRequestException("不支持的钱包事件类型: " + event.getEventType());
         }
+    }
+
+    private void recordRoomScoreLedger(WalletChangeEventDTO event, String walletType, Long amount,
+                                       String refNo, String remark, boolean increase) {
+        WalletLedger ledger = new WalletLedger();
+        ledger.setUserId(event.getUserId());
+        ledger.setWalletType(walletType);
+        ledger.setChangeAmount(increase ? amount : -amount);
+        ledger.setBalanceAfter(walletService.getBalance(event.getUserId(), walletType));
+        ledger.setBizType(LedgerBizType.GAME_SETTLE.getCode());
+        ledger.setBizId(refNo);
+        ledger.setRefNo(refNo);
+        ledger.setRemark(remark + " | 房内分结算，背包余额随离房返还同步");
+        ledger.setCreateTime(LocalDateTime.now());
+        walletLedgerMapper.insert(ledger);
     }
 
     private void validate(WalletChangeEventDTO event) {

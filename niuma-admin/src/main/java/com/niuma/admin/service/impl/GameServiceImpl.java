@@ -1194,22 +1194,15 @@ public class GameServiceImpl implements IGameService {
         if (StringUtils.isEmpty(playerId))
             throw new InternalServerException(ResultCodeEnum.INTERNAL_SERVER_ERROR.getCode(), "Current login player is null, this is unexpected");
         BigDecimal minScore = money(Math.max(0L, minCarryScore));
-        BigDecimal carryScore = requestedCarryScore == null ? minScore : money(requestedCarryScore);
-        if (carryScore.compareTo(BigDecimal.ZERO) < 0)
-            throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "携带积分不能为负数");
-        if (carryScore.compareTo(minScore) < 0) {
-            String msg = "携带积分不足，最低需要" + formatMoney(minScore) + "积分";
-            throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
-        }
         BigDecimal gold = this.capitalMapper.getGold(playerId);
         if (gold == null)
             gold = BigDecimal.ZERO;
         gold = money(gold);
-        if (gold.compareTo(carryScore) < 0) {
-            String msg = "携带积分不足，本次携带需要" + formatMoney(carryScore) + "积分，当前可用积分" + formatMoney(gold) + "，保险柜积分不参与游戏结算，请先从保险柜取出积分";
+        if (gold.compareTo(minScore) < 0) {
+            String msg = "积分不足，加入本桌至少需要" + formatMoney(minScore) + "积分，当前背包积分" + formatMoney(gold) + "，保险柜积分不参与游戏结算，请先从保险柜取出积分";
             throw new ForbiddenException(NiuMaCodeEnum.GOLD_INSUFFICIENT_ERROR.getCode(), msg);
         }
-        return carryScore;
+        return gold;
     }
 
     private void assertEnoughCarryScore(String playerId, long minCarryScore) {
@@ -1298,7 +1291,7 @@ public class GameServiceImpl implements IGameService {
 
     private BigDecimal resolveCarryScoreForVenue(String playerId, Venue venue, BigDecimal requestedCarryScore) {
         if (venue == null || isPlayerInVenue(playerId, venue.getId()))
-            return requestedCarryScore;
+            return null;
         return resolveCarryScore(playerId, resolveMinCarryScoreForVenue(venue), requestedCarryScore);
     }
 
@@ -1308,7 +1301,7 @@ public class GameServiceImpl implements IGameService {
 
     private BigDecimal resolveCarryScoreForDistrict(String playerId, Integer districtId, District district, BigDecimal requestedCarryScore) {
         if (isPlayerInDistrict(playerId, districtId))
-            return requestedCarryScore;
+            return null;
         return resolveCarryScore(playerId, resolveMinCarryScoreForDistrict(districtId, district), requestedCarryScore);
     }
 

@@ -7,6 +7,16 @@ IFS=$'\n\t'
 dnf install -y awscli docker tar gzip
 systemctl enable --now docker
 
+if ! swapon --show | grep -q .; then
+  SWAP_FILE="/swapfile-niuma-build"
+  if [[ ! -f "$SWAP_FILE" ]]; then
+    fallocate -l 4G "$SWAP_FILE"
+    chmod 600 "$SWAP_FILE"
+    mkswap "$SWAP_FILE"
+  fi
+  swapon "$SWAP_FILE" || true
+fi
+
 CONFIG_JSON="$(printf '%s' "${NIUMA_CONFIG_B64:?missing build configuration}" | base64 -d)"
 value() { jq -er --arg key "$1" '.[$key]' <<< "$CONFIG_JSON"; }
 

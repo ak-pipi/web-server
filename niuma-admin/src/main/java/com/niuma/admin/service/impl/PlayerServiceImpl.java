@@ -35,10 +35,10 @@ import com.niuma.common.utils.CommonUtils;
 import com.niuma.common.utils.PlayerSecurityUtils;
 import com.niuma.common.utils.StringUtils;
 import com.niuma.common.utils.ip.IpUtils;
+import com.niuma.common.utils.uuid.IdUtils;
 import com.niuma.framework.manager.AsyncManager;
 import com.niuma.framework.web.service.PlayerTokenService;
 import com.niuma.system.mapper.SysUserMapper;
-import com.niuma.system.service.ISysConfigService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -73,9 +73,6 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
      */
     @Autowired
     private RedisPrimitive redisPrimitive;
-
-    @Autowired
-    private ISysConfigService configService;
 
     @Autowired
     private BCryptPasswordEncoder bCryptPasswordEncoder;
@@ -143,8 +140,6 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         String password = AesUtil.decrypt(dto.getPassword());
         if (StringUtils.isEmpty(name) || StringUtils.isEmpty(password))
             throw new BadRequestException(ResultCodeEnum.BAD_REQUEST.getCode(), "账号或密码错误");
-        this.validateCaptcha(dto.getCode(), dto.getUuid());
-
         Player entity = resolveLoginPlayer(name, password);
         ensurePlayerNotActive(entity.getId());
         if (CommonUtils.predicate(entity.getBanned())) {
@@ -158,7 +153,7 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         player.setId(entity.getId());
         player.setName(entity.getName());
         player.setNickName(entity.getNickname());
-        player.setUuid(dto.getUuid());
+        player.setUuid(IdUtils.fastUUID());
         this.playerTokenService.setLoginPlayer(player);
         String token = Constants.TOKEN_PREFIX + this.playerTokenService.createToken(player);
         this.baseMapper.updateLogin(entity.getId(), IpUtils.getIpAddr());
@@ -329,26 +324,6 @@ public class PlayerServiceImpl extends ServiceImpl<PlayerMapper, Player> impleme
         Long delta = timestamp - activeTime;
         if (delta < 30L) {
             throw new ForbiddenException(NiuMaCodeEnum.PLAYER_LOGINED);
-        }
-    }
-
-    /**
-     * 校验验证码
-     *
-     * @param code 验证码
-     * @param uuid 唯一标识
-     * @return 结果
-     */
-    private void validateCaptcha(String code, String uuid) {
-        boolean captchaEnabled = this.configService.selectCaptchaEnabled();
-        if (captchaEnabled) {
-            String verifyKey = CacheConstants.CAPTCHA_CODE_KEY + StringUtils.nvl(uuid, "");
-            String captcha = this.redisCache.getCacheObject(verifyKey);
-            if (captcha == null)
-                throw new CaptchaExpireException();
-            this.redisCache.deleteObject(verifyKey);
-            if (!code.equalsIgnoreCase(captcha))
-                throw new CaptchaException();
         }
     }
 

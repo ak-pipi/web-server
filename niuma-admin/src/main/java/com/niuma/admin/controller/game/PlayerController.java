@@ -1,7 +1,6 @@
 package com.niuma.admin.controller.game;
 
 import com.niuma.admin.dto.*;
-import com.niuma.admin.service.ICaptchaService;
 import com.niuma.admin.service.IPlayerService;
 import com.niuma.common.annotation.Log;
 import com.niuma.common.core.domain.AjaxResult;
@@ -11,8 +10,6 @@ import com.niuma.common.enums.OperatorType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-
-import java.io.IOException;
 
 /**
  * 玩家相关控制器
@@ -24,18 +21,7 @@ import java.io.IOException;
 @RequestMapping("/player")
 public class PlayerController {
     @Autowired
-    private ICaptchaService captchaService;
-
-    @Autowired
     private IPlayerService playerService;
-
-    /**
-     * 生成验证码
-     */
-    @GetMapping("/captcha-image")
-    public AjaxResult getCode() throws IOException {
-        return this.captchaService.getCode(2);
-    }
 
     /**
      * 登录

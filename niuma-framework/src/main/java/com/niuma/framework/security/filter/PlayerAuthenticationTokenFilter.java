@@ -39,14 +39,12 @@ public class PlayerAuthenticationTokenFilter extends OncePerRequestFilter {
 
     private final String PLAYER_REGISTER = "/player/register";
 
-    private final String PLAYER_CAPTCHA = "/player/captcha-image";
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         PlayerSecurityUtils.setLoginPlayer(null);
         String path = request.getRequestURI();
-        if (PLAYER_LOGIN.equals(path) || PLAYER_CAPTCHA.equals(path) || PLAYER_REGISTER.equals(path) || !(PATH_MATCHER.match(PLAYER_URI, path))) {
-            // 玩家登录、请求登录验证码、注册，或者非玩家资源直接通过
+        if (PLAYER_LOGIN.equals(path) || PLAYER_REGISTER.equals(path) || !(PATH_MATCHER.match(PLAYER_URI, path))) {
+            // 玩家登录、注册，或者非玩家资源直接通过
             filterChain.doFilter(request, response);
             return;
         }
